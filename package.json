@@ -10,10 +10,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^4.19.0",
     "mysql2": "^3.14.3",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "jsonwebtoken": "^9.0.2"
   }
 }
