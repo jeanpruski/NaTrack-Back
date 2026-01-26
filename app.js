@@ -166,7 +166,9 @@ api.post("/auth/login", async (req, res) => {
     if (!email || !password) return res.status(400).json({ error: "missing_credentials" });
 
     const [rows] = await pool.query(
-      "SELECT id, email, name, role, password_hash FROM users WHERE email = ? LIMIT 1",
+      "SELECT id, email, name, role, password_hash, shoe_name, card_image, " +
+        "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
+        "shoe_target_km FROM users WHERE email = ? LIMIT 1",
       [String(email).trim().toLowerCase()]
     );
 
@@ -181,7 +183,16 @@ api.post("/auth/login", async (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        shoe_name: user.shoe_name || null,
+        card_image: user.card_image || null,
+        shoe_start_date: user.shoe_start_date || null,
+        shoe_target_km: user.shoe_target_km ?? null,
+      },
     });
   } catch (e) {
     console.error("POST /auth/login error:", e);
@@ -193,12 +204,25 @@ api.post("/auth/login", async (req, res) => {
 api.get("/auth/me", requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, name, role FROM users WHERE id = ? LIMIT 1",
+      "SELECT id, email, name, role, shoe_name, card_image, " +
+        "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
+        "shoe_target_km FROM users WHERE id = ? LIMIT 1",
       [req.user.id]
     );
     const user = rows?.[0];
     if (!user) return res.status(404).json({ error: "not_found" });
-    res.json({ user });
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        shoe_name: user.shoe_name || null,
+        card_image: user.card_image || null,
+        shoe_start_date: user.shoe_start_date || null,
+        shoe_target_km: user.shoe_target_km ?? null,
+      },
+    });
   } catch (e) {
     console.error("GET /auth/me error:", e);
     res.status(500).json({ error: e.message });
@@ -276,7 +300,11 @@ api.get("/dashboard/global", async (_req, res) => {
 // Liste publique des utilisateurs
 api.get("/users/public", async (_req, res) => {
   try {
-    const [rows] = await pool.query("SELECT id, name FROM users ORDER BY name ASC");
+    const [rows] = await pool.query(
+      "SELECT id, name, shoe_name, card_image, created_at, " +
+        "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
+        "shoe_target_km FROM users ORDER BY name ASC"
+    );
     res.json(rows);
   } catch (e) {
     console.error("GET /users/public error:", e);
@@ -410,7 +438,11 @@ api.delete("/me/sessions/:id", requireAuth, async (req, res) => {
 // Admin: liste des users
 api.get("/users", requireAuth, requireAdmin, async (_req, res) => {
   try {
-    const [rows] = await pool.query("SELECT id, email, name, role, created_at FROM users ORDER BY created_at ASC");
+    const [rows] = await pool.query(
+      "SELECT id, email, name, role, created_at, shoe_name, card_image, " +
+        "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
+        "shoe_target_km FROM users ORDER BY created_at ASC"
+    );
     res.json(rows);
   } catch (e) {
     console.error("GET /users error:", e);
