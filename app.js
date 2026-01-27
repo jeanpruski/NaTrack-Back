@@ -166,7 +166,7 @@ api.post("/auth/login", async (req, res) => {
     if (!email || !password) return res.status(400).json({ error: "missing_credentials" });
 
     const [rows] = await pool.query(
-      "SELECT id, email, name, role, password_hash, shoe_name, card_image, " +
+      "SELECT id, email, name, role, password_hash, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users WHERE email = ? LIMIT 1",
       [String(email).trim().toLowerCase()]
@@ -174,6 +174,8 @@ api.post("/auth/login", async (req, res) => {
 
     const user = rows?.[0];
     if (!user) return res.status(401).json({ error: "invalid_credentials" });
+
+    if (user.is_bot) return res.status(403).json({ error: "bot_account" });
 
     const ok = await bcrypt.compare(String(password), user.password_hash);
     if (!ok) return res.status(401).json({ error: "invalid_credentials" });
@@ -188,6 +190,9 @@ api.post("/auth/login", async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        is_bot: !!user.is_bot,
+        bot_color: user.bot_color || null,
+        bot_border_color: user.bot_border_color || null,
         shoe_name: user.shoe_name || null,
         card_image: user.card_image || null,
         shoe_start_date: user.shoe_start_date || null,
@@ -204,7 +209,7 @@ api.post("/auth/login", async (req, res) => {
 api.get("/auth/me", requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, name, role, shoe_name, card_image, " +
+      "SELECT id, email, name, role, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users WHERE id = ? LIMIT 1",
       [req.user.id]
@@ -217,6 +222,9 @@ api.get("/auth/me", requireAuth, async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        is_bot: !!user.is_bot,
+        bot_color: user.bot_color || null,
+        bot_border_color: user.bot_border_color || null,
         shoe_name: user.shoe_name || null,
         card_image: user.card_image || null,
         shoe_start_date: user.shoe_start_date || null,
@@ -301,7 +309,7 @@ api.get("/dashboard/global", async (_req, res) => {
 api.get("/users/public", async (_req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, name, shoe_name, card_image, created_at, " +
+      "SELECT id, name, shoe_name, card_image, is_bot, bot_color, bot_border_color, created_at, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users ORDER BY name ASC"
     );
@@ -439,7 +447,7 @@ api.delete("/me/sessions/:id", requireAuth, async (req, res) => {
 api.get("/users", requireAuth, requireAdmin, async (_req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, name, role, created_at, shoe_name, card_image, " +
+      "SELECT id, email, name, role, created_at, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users ORDER BY created_at ASC"
     );
