@@ -1,0 +1,14 @@
+[
+  {
+    "id": "bc777d16-fb65-11f0-970f-fa163e707c85",
+    "name": "OldRun 2k",
+    "distance_m": 285,
+    "type": "run"
+  },
+  {
+    "id": "d319518e-fb69-11f0-970f-fa163e707c85",
+    "name": "Blitzgob 4k",
+    "distance_m": 571,
+    "type": "swim"
+  }
+]
