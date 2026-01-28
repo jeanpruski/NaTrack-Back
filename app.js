@@ -158,6 +158,7 @@ async function getActiveChallenge(userId) {
     "SELECT c.id, c.bot_id, c.type, c.target_distance_m, " +
       "DATE_FORMAT(c.start_date, '%Y-%m-%d') AS start_date, " +
       "DATE_FORMAT(c.due_date, '%Y-%m-%d') AS due_date, " +
+      "DATE_FORMAT(c.due_at, '%Y-%m-%d %H:%i:%s') AS due_at, " +
       "u.name AS bot_name " +
       "FROM user_challenges c LEFT JOIN users u ON u.id = c.bot_id " +
       "WHERE c.user_id = ? AND c.status = 'active' ORDER BY c.created_at DESC LIMIT 1",

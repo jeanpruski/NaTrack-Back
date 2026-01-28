@@ -18,6 +18,12 @@ function addDays(dateStr, days) {
   return getLocalDateString(base);
 }
 
+function addDaysDate(date = new Date(), days = 0) {
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 function jitterDistance(baseMeters, ratio = 0.15) {
   const base = Number(baseMeters);
   if (!Number.isFinite(base) || base <= 0) return null;
@@ -35,6 +41,32 @@ function formatKm(meters) {
   const km = Number(meters) / 1000;
   if (!Number.isFinite(km)) return "";
   return km.toFixed(3);
+}
+
+function formatDateLabel(date) {
+  if (Number.isNaN(date.getTime())) return dateStr;
+  const weekdays = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+  const months = [
+    "Janvier",
+    "Février",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Août",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Décembre",
+  ];
+  const dayName = weekdays[date.getDay()];
+  const monthName = months[date.getMonth()];
+  const day = date.getDate();
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${dayName} ${day} ${monthName} ${year} à ${hours}h${minutes}`;
 }
 
 function pickWeighted(items, weightFn) {
@@ -105,6 +137,7 @@ async function main() {
       let targetDistance = null;
       let type = "defi";
       let dueDate = addDays(today, 3);
+      let dueDateTime = addDaysDate(new Date(), 3);
 
       if (eventBots.length) {
         bot = pickWeighted(eventBots, (b) => Number(b.bot_drop_rate) || 1);
@@ -112,6 +145,7 @@ async function main() {
         targetDistance = Number(bot.bot_target_distance_m);
         type = "evenement";
         dueDate = today;
+        dueDateTime = new Date();
       } else if (challengeBots.length) {
         bot = pickWeighted(challengeBots, (b) => {
           const base = Number(b.bot_drop_rate) || 1;
@@ -128,9 +162,9 @@ async function main() {
       const challengeId = crypto.randomUUID();
       await pool.query(
         "INSERT INTO user_challenges " +
-          "(id, user_id, bot_id, type, status, target_distance_m, start_date, due_date) " +
-          "VALUES (?, ?, ?, ?, 'active', ?, ?, ?)",
-        [challengeId, user.id, bot.id, type, targetDistance, today, dueDate]
+          "(id, user_id, bot_id, type, status, target_distance_m, start_date, due_date, due_at) " +
+          "VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
+        [challengeId, user.id, bot.id, type, targetDistance, today, dueDate, dueDateTime]
       );
 
       const km = formatKm(targetDistance);
@@ -142,10 +176,11 @@ async function main() {
           meta: { bot_id: bot.id, challenge_id: challengeId },
         });
       } else {
+        const dueLabel = formatDateLabel(dueDateTime);
         await createNotification(pool, user.id, {
           type: "challenge_start",
           title: "Nouveau défi",
-          body: `Un bot te défie : ${bot.name}. Tu as 3 jours pour faire ${km} km.`,
+          body: `[${bot.name}] te défie à la course, cours ${km} km avant le ${dueLabel} pour gagner sa carte !`,
           meta: { bot_id: bot.id, challenge_id: challengeId },
         });
       }

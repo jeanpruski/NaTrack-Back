@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS user_challenges (
   target_distance_m DECIMAL(8,1) NOT NULL,
   start_date DATE NOT NULL,
   due_date DATE NOT NULL,
+  due_at DATETIME NULL,
   completed_at DATETIME NULL,
   completed_session_id VARCHAR(36) NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
