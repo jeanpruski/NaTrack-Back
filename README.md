@@ -26,6 +26,13 @@ En bref: c est enorme.
 - PUT /api/users/:userId/sessions/:id (admin)
 - DELETE /api/users/:userId/sessions/:id (admin)
 
+## Schema update (description)
+Ajout d'un champ description pour users + bots :
+```sql
+ALTER TABLE users ADD COLUMN description TEXT NULL;
+ALTER TABLE users ADD COLUMN avg_distance_m DECIMAL(6,1) NULL;
+```
+
 ## Config
 Variables d environnement attendues (exemple):
 - PORT=3001

@@ -166,7 +166,7 @@ api.post("/auth/login", async (req, res) => {
     if (!email || !password) return res.status(400).json({ error: "missing_credentials" });
 
     const [rows] = await pool.query(
-      "SELECT id, email, name, role, password_hash, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
+      "SELECT id, email, name, description, avg_distance_m, role, password_hash, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users WHERE email = ? LIMIT 1",
       [String(email).trim().toLowerCase()]
@@ -189,6 +189,8 @@ api.post("/auth/login", async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
+        avg_distance_m: user.avg_distance_m ?? null,
+        description: user.description || null,
         role: user.role,
         is_bot: !!user.is_bot,
         bot_color: user.bot_color || null,
@@ -209,7 +211,7 @@ api.post("/auth/login", async (req, res) => {
 api.get("/auth/me", requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, name, role, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
+      "SELECT id, email, name, description, avg_distance_m, role, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users WHERE id = ? LIMIT 1",
       [req.user.id]
@@ -221,6 +223,8 @@ api.get("/auth/me", requireAuth, async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
+        avg_distance_m: user.avg_distance_m ?? null,
+        description: user.description || null,
         role: user.role,
         is_bot: !!user.is_bot,
         bot_color: user.bot_color || null,
@@ -309,7 +313,7 @@ api.get("/dashboard/global", async (_req, res) => {
 api.get("/users/public", async (_req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, name, shoe_name, card_image, is_bot, bot_color, bot_border_color, created_at, " +
+      "SELECT id, name, description, avg_distance_m, shoe_name, card_image, is_bot, bot_color, bot_border_color, created_at, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users ORDER BY name ASC"
     );
@@ -447,7 +451,7 @@ api.delete("/me/sessions/:id", requireAuth, async (req, res) => {
 api.get("/users", requireAuth, requireAdmin, async (_req, res) => {
   try {
     const [rows] = await pool.query(
-      "SELECT id, email, name, role, created_at, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
+      "SELECT id, email, name, description, avg_distance_m, role, created_at, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users ORDER BY created_at ASC"
     );
