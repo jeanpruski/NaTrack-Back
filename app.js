@@ -594,6 +594,48 @@ api.get("/me/card-results", requireAuth, async (req, res) => {
   }
 });
 
+// Comptes de cartes d'un user (débloquées + totaux)
+api.get("/users/:id/card-results-counts", requireAuth, async (req, res) => {
+  try {
+    const userId = req.params?.id;
+    if (!userId) return res.status(400).json({ error: "user_id requis" });
+
+    const totals = { defi: 0, rare: 0, evenement: 0 };
+    const counts = { defi: 0, rare: 0, evenement: 0 };
+
+    const [totalRows] = await pool.query(
+      "SELECT LOWER(bot_card_type) AS type, COUNT(*) AS total " +
+        "FROM users WHERE is_bot = 1 AND bot_card_type IN ('defi','rare','evenement') " +
+        "GROUP BY LOWER(bot_card_type)"
+    );
+    totalRows.forEach((row) => {
+      if (row?.type && totals[row.type] !== undefined) totals[row.type] = Number(row.total) || 0;
+    });
+
+    const [countRows] = await pool.query(
+      "SELECT LOWER(type) AS type, COUNT(*) AS total " +
+        "FROM user_card_results WHERE user_id = ? AND type IN ('defi','rare','evenement') " +
+        "GROUP BY LOWER(type)",
+      [userId]
+    );
+    countRows.forEach((row) => {
+      if (row?.type && counts[row.type] !== undefined) counts[row.type] = Number(row.total) || 0;
+    });
+
+    res.json({
+      defi: counts.defi,
+      rare: counts.rare,
+      evenement: counts.evenement,
+      defiTotal: totals.defi,
+      rareTotal: totals.rare,
+      evenementTotal: totals.evenement,
+    });
+  } catch (e) {
+    console.error("GET /users/:id/card-results-counts error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Creation pour user courant
 api.post("/me/sessions", requireAuth, async (req, res) => {
   try {

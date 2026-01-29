@@ -148,6 +148,8 @@ async function main() {
       (b) => (b.bot_card_type === "defi" || b.bot_card_type === "rare") && Number(b.avg_distance_m) > 0
     );
 
+    const dailyEventBot = eventBots.length ? pickWeighted(eventBots, (b) => Number(b.bot_drop_rate) || 1) : null;
+
     for (const user of users) {
       const [activeRows] = await pool.query(
         "SELECT id, DATE_FORMAT(due_date, '%Y-%m-%d') AS due_date " +
@@ -156,11 +158,13 @@ async function main() {
         [user.id]
       );
       const active = activeRows?.[0] || null;
-      if (active && active.due_date >= today) {
-        continue;
-      }
       if (active && active.due_date < today) {
         await pool.query("UPDATE user_challenges SET status = 'expired' WHERE id = ?", [active.id]);
+      }
+      if (dailyEventBot && active && active.due_date >= today) {
+        await pool.query("UPDATE user_challenges SET status = 'expired' WHERE id = ?", [active.id]);
+      } else if (active && active.due_date >= today) {
+        continue;
       }
 
       let bot = null;
@@ -169,12 +173,10 @@ async function main() {
       let dueDate = addDays(today, 3);
       let dueDateTime = addDaysDate(new Date(), 3);
 
-      const availableEventBots = eventBots.filter((b) => !usedBots.has(String(b.id)));
       const availableChallengeBots = challengeBots.filter((b) => !usedBots.has(String(b.id)));
 
-      if (availableEventBots.length) {
-        bot = pickWeighted(availableEventBots, (b) => Number(b.bot_drop_rate) || 1);
-        if (!bot) continue;
+      if (dailyEventBot) {
+        bot = dailyEventBot;
         targetDistance = Number(bot.bot_target_distance_m);
         type = "evenement";
         dueDate = today;
@@ -191,7 +193,9 @@ async function main() {
       }
 
       if (!bot || !targetDistance) continue;
-      usedBots.add(String(bot.id));
+      if (type !== "evenement") {
+        usedBots.add(String(bot.id));
+      }
 
       const challengeId = crypto.randomUUID();
       await pool.query(
