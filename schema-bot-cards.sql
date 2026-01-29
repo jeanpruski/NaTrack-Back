@@ -4,7 +4,8 @@ ALTER TABLE users
   ADD COLUMN bot_card_type ENUM('defi','objet','evenement','rare') NULL,
   ADD COLUMN bot_event_date DATE NULL,
   ADD COLUMN bot_drop_rate DECIMAL(6,3) NULL,
-  ADD COLUMN bot_target_distance_m DECIMAL(8,1) NULL;
+  ADD COLUMN bot_target_distance_m DECIMAL(8,1) NULL,
+  ADD COLUMN bot_season_int INT NULL;
 
 -- Active challenges (one per user max)
 CREATE TABLE IF NOT EXISTS user_challenges (

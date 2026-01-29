@@ -301,6 +301,7 @@ api.post("/auth/login", async (req, res) => {
         bot_event_date: user.bot_event_date || null,
         bot_drop_rate: user.bot_drop_rate ?? null,
         bot_target_distance_m: user.bot_target_distance_m ?? null,
+        bot_season_int: user.bot_season_int ?? null,
         shoe_name: user.shoe_name || null,
         card_image: user.card_image || null,
         shoe_start_date: user.shoe_start_date || null,
@@ -340,6 +341,7 @@ api.get("/auth/me", requireAuth, async (req, res) => {
         bot_event_date: user.bot_event_date || null,
         bot_drop_rate: user.bot_drop_rate ?? null,
         bot_target_distance_m: user.bot_target_distance_m ?? null,
+        bot_season_int: user.bot_season_int ?? null,
         shoe_name: user.shoe_name || null,
         card_image: user.card_image || null,
         shoe_start_date: user.shoe_start_date || null,
@@ -425,7 +427,7 @@ api.get("/users/public", async (_req, res) => {
   try {
     const [rows] = await pool.query(
       "SELECT id, name, description, avg_distance_m, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
-        "bot_card_type, DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, bot_drop_rate, bot_target_distance_m, created_at, " +
+        "bot_card_type, DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, bot_drop_rate, bot_target_distance_m, bot_season_int, created_at, " +
         "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
         "shoe_target_km FROM users ORDER BY name ASC"
     );

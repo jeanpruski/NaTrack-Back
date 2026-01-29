@@ -88,6 +88,20 @@ async function createNotification(pool, userId, { type, title, body, meta }) {
   );
 }
 
+async function ensureBotSession(pool, botId, dateStr, distanceMeters) {
+  const distance = Number(distanceMeters);
+  if (!botId || !Number.isFinite(distance) || distance <= 0) return;
+  const [rows] = await pool.query(
+    "SELECT id FROM sessions WHERE user_id = ? AND date = ? LIMIT 1",
+    [botId, dateStr]
+  );
+  if (rows?.length) return;
+  await pool.query(
+    "INSERT INTO sessions (id, user_id, date, distance, type) VALUES (?, ?, ?, ?, ?)",
+    [crypto.randomUUID(), botId, dateStr, distance, "run"]
+  );
+}
+
 async function main() {
   const today = getLocalDateString();
 
@@ -110,6 +124,9 @@ async function main() {
         "FROM users WHERE is_bot = 1"
     );
     const [users] = await pool.query("SELECT id, name FROM users WHERE is_bot = 0");
+
+    const [usedRows] = await pool.query("SELECT DISTINCT bot_id FROM user_challenges WHERE start_date = ?", [today]);
+    const usedBots = new Set((usedRows || []).map((row) => String(row.bot_id)));
 
     const eventBots = bots.filter(
       (b) => b.bot_card_type === "evenement" && b.bot_event_date === today && Number(b.bot_target_distance_m) > 0
@@ -139,15 +156,18 @@ async function main() {
       let dueDate = addDays(today, 3);
       let dueDateTime = addDaysDate(new Date(), 3);
 
-      if (eventBots.length) {
-        bot = pickWeighted(eventBots, (b) => Number(b.bot_drop_rate) || 1);
+      const availableEventBots = eventBots.filter((b) => !usedBots.has(String(b.id)));
+      const availableChallengeBots = challengeBots.filter((b) => !usedBots.has(String(b.id)));
+
+      if (availableEventBots.length) {
+        bot = pickWeighted(availableEventBots, (b) => Number(b.bot_drop_rate) || 1);
         if (!bot) continue;
         targetDistance = Number(bot.bot_target_distance_m);
         type = "evenement";
         dueDate = today;
         dueDateTime = new Date();
-      } else if (challengeBots.length) {
-        bot = pickWeighted(challengeBots, (b) => {
+      } else if (availableChallengeBots.length) {
+        bot = pickWeighted(availableChallengeBots, (b) => {
           const base = Number(b.bot_drop_rate) || 1;
           return b.bot_card_type === "rare" ? base * 0.5 : base;
         });
@@ -158,6 +178,7 @@ async function main() {
       }
 
       if (!bot || !targetDistance) continue;
+      usedBots.add(String(bot.id));
 
       const challengeId = crypto.randomUUID();
       await pool.query(
@@ -175,6 +196,7 @@ async function main() {
           body: `Fais ${km} km aujourd'hui pour gagner la carte ${bot.name}.`,
           meta: { bot_id: bot.id, challenge_id: challengeId },
         });
+        await ensureBotSession(pool, bot.id, today, targetDistance);
       } else {
         const dueLabel = formatDateLabel(dueDateTime);
         await createNotification(pool, user.id, {
@@ -183,6 +205,7 @@ async function main() {
           body: `[${bot.name}] te défie à la course, cours ${km} km avant le ${dueLabel} pour gagner sa carte !`,
           meta: { bot_id: bot.id, challenge_id: challengeId },
         });
+        await ensureBotSession(pool, bot.id, today, targetDistance);
       }
     }
   } finally {
