@@ -117,12 +117,25 @@ async function main() {
   });
 
   try {
-    const [bots] = await pool.query(
-      "SELECT id, name, avg_distance_m, bot_card_type, " +
-        "DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, " +
-        "bot_drop_rate, bot_target_distance_m " +
-        "FROM users WHERE is_bot = 1"
+    const [seasonRows] = await pool.query(
+      "SELECT season_number FROM seasons WHERE start_date <= ? ORDER BY start_date DESC, season_number DESC LIMIT 1",
+      [today]
     );
+    const activeSeason = seasonRows?.[0]?.season_number ?? null;
+
+    let botsSql =
+      "SELECT id, name, avg_distance_m, bot_card_type, " +
+      "DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, " +
+      "bot_drop_rate, bot_target_distance_m " +
+      "FROM users WHERE is_bot = 1";
+    const botsParams = [];
+    if (activeSeason !== null && activeSeason !== undefined) {
+      botsSql += " AND (bot_season_int IS NULL OR bot_season_int <= ?)";
+      botsParams.push(activeSeason);
+    } else {
+      botsSql += " AND bot_season_int IS NULL";
+    }
+    const [bots] = await pool.query(botsSql, botsParams);
     const [users] = await pool.query("SELECT id, name FROM users WHERE is_bot = 0");
 
     const [usedRows] = await pool.query("SELECT DISTINCT bot_id FROM user_challenges WHERE start_date = ?", [today]);

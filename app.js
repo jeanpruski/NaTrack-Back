@@ -86,6 +86,26 @@ function requireAdmin(req, res, next) {
   return res.status(403).json({ error: "forbidden" });
 }
 
+async function getActiveSeasonInfo() {
+  const [rows] = await pool.query(
+    "SELECT season_number, DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date " +
+      "FROM seasons WHERE start_date <= CURDATE() " +
+      "ORDER BY start_date DESC, season_number DESC LIMIT 1"
+  );
+  const active = rows?.[0] || { season_number: null, start_date: null };
+  if (active.start_date) {
+    const [nextRows] = await pool.query(
+      "SELECT DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date FROM seasons " +
+        "WHERE start_date > ? ORDER BY start_date ASC LIMIT 1",
+      [active.start_date]
+    );
+    active.next_start_date = nextRows?.[0]?.start_date || null;
+  } else {
+    active.next_start_date = null;
+  }
+  return active;
+}
+
 /* =========================
    Bloquer la navigation directe (GET document) => 204
    ========================= */
@@ -368,14 +388,25 @@ api.get("/sessions", async (req, res) => {
       return res.status(400).json({ error: "type invalide (swim|run)" });
     }
 
+    const activeSeason = await getActiveSeasonInfo();
     let sql =
       "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, u.name AS user_name " +
       "FROM sessions s LEFT JOIN users u ON u.id = s.user_id";
     const params = [];
+    const conds = [];
 
     if (type) {
-      sql += " WHERE s.type = ?";
+      conds.push("s.type = ?");
       params.push(type);
+    }
+    if (activeSeason?.season_number !== null && activeSeason?.season_number !== undefined) {
+      conds.push("(u.is_bot = 0 OR u.bot_season_int IS NULL OR u.bot_season_int <= ?)");
+      params.push(activeSeason.season_number);
+    } else {
+      conds.push("(u.is_bot = 0 OR u.bot_season_int IS NULL)");
+    }
+    if (conds.length) {
+      sql += " WHERE " + conds.join(" AND ");
     }
 
     sql += " ORDER BY s.date ASC";
@@ -422,15 +453,50 @@ api.get("/dashboard/global", async (_req, res) => {
   }
 });
 
+
+// Saison active (public)
+api.get("/season/active", async (_req, res) => {
+  try {
+    const active = await getActiveSeasonInfo();
+    res.json(active);
+  } catch (e) {
+    console.error("GET /season/active error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Liste des saisons (public)
+api.get("/seasons", async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT season_number, DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date " +
+        "FROM seasons ORDER BY start_date ASC, season_number ASC"
+    );
+    res.json(rows || []);
+  } catch (e) {
+    console.error("GET /seasons error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Liste publique des utilisateurs
 api.get("/users/public", async (_req, res) => {
   try {
-    const [rows] = await pool.query(
+    const activeSeason = await getActiveSeasonInfo();
+    const params = [];
+    let sql =
       "SELECT id, name, description, avg_distance_m, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
-        "bot_card_type, DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, bot_drop_rate, bot_target_distance_m, bot_season_int, created_at, " +
-        "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
-        "shoe_target_km FROM users ORDER BY name ASC"
-    );
+      "bot_card_type, DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, bot_drop_rate, bot_target_distance_m, bot_season_int, created_at, " +
+      "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
+      "shoe_target_km FROM users";
+    if (activeSeason?.season_number !== null && activeSeason?.season_number !== undefined) {
+      sql += " WHERE (is_bot = 0 OR bot_season_int IS NULL OR bot_season_int <= ?)";
+      params.push(activeSeason.season_number);
+    } else {
+      sql += " WHERE (is_bot = 0 OR bot_season_int IS NULL)";
+    }
+    sql += " ORDER BY name ASC";
+    const [rows] = await pool.query(sql, params);
     res.json(rows);
   } catch (e) {
     console.error("GET /users/public error:", e);

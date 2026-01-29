@@ -7,6 +7,14 @@ ALTER TABLE users
   ADD COLUMN bot_target_distance_m DECIMAL(8,1) NULL,
   ADD COLUMN bot_season_int INT NULL;
 
+-- Seasons
+CREATE TABLE IF NOT EXISTS seasons (
+  season_number INT PRIMARY KEY,
+  start_date DATE NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_season_start (start_date)
+);
+
 -- Active challenges (one per user max)
 CREATE TABLE IF NOT EXISTS user_challenges (
   id VARCHAR(36) PRIMARY KEY,
