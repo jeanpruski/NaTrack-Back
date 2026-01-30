@@ -106,6 +106,7 @@ async function getActiveSeasonInfo() {
   return active;
 }
 
+
 /* =========================
    Bloquer la navigation directe (GET document) => 204
    ========================= */
@@ -268,6 +269,30 @@ function mapSessionRow(row) {
    Router API
    ========================= */
 const api = express.Router();
+
+/* =========================
+   News (événements spéciaux)
+   ========================= */
+api.get("/news", async (req, res) => {
+  try {
+    const limitRaw = Number(req.query.limit);
+    const offsetRaw = Number(req.query.offset);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 50) : null;
+    const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
+    const baseSql =
+      "SELECT id, title, subtitle, city, image_url, image_focus_y, link_url, " +
+      "DATE_FORMAT(event_date, '%Y-%m-%d') AS event_date, " +
+      "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at " +
+      "FROM news_items ORDER BY created_at DESC, event_date DESC";
+    const [rows] = limit
+      ? await pool.query(`${baseSql} LIMIT ? OFFSET ?`, [limit, offset])
+      : await pool.query(baseSql);
+    res.json(Array.isArray(rows) ? rows : []);
+  } catch (e) {
+    console.error("GET /news error:", e);
+    res.status(500).json({ error: "news_error" });
+  }
+});
 api.use(blockBrowserNav);
 
 // Healthcheck DB + app

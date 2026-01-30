@@ -1,113 +1,176 @@
 # NaTrack API
 
-API Express + MariaDB pour le tracker NaTrack.
+Backend Express + MariaDB pour NaTrack. Auth JWT, sessions sportives (swim/run), bots, saisons, cartes, defis, events, news et notifications.
 
-## Nouveautes (v2)
-- Multi-user: chaque utilisateur a ses propres sessions.
-- Auth JWT: login, /auth/me, roles user/admin.
-- Admin: gestion et lecture des sessions de tous les users.
-- Public read: sessions et dashboard global visibles par tous.
+---
 
-En bref: c est enorme.
+## Pourquoi c'est cool
+- Multi-user + roles (user/admin)
+- Endpoints publics + prives
+- Bots qui courent tous les jours
+- Defis & evenements quotidiens
+- Saisons, cartes, drops, notifications
+- API propre, simple a deployer
 
-## Endpoints principaux
-- GET /api/health
-- POST /api/auth/login
-- GET /api/auth/me
-- GET /api/sessions (public)
-- GET /api/dashboard/global (public)
-- GET /api/me/sessions (user)
-- POST /api/me/sessions (user)
-- PUT /api/me/sessions/:id (user)
-- DELETE /api/me/sessions/:id (user)
-- GET /api/users (admin)
-- GET /api/users/:userId/sessions (admin)
-- POST /api/users/:userId/sessions (admin)
-- PUT /api/users/:userId/sessions/:id (admin)
-- DELETE /api/users/:userId/sessions/:id (admin)
+---
 
-## Schema update (description)
-Ajout d'un champ description pour users + bots :
-```sql
-ALTER TABLE users ADD COLUMN description TEXT NULL;
-ALTER TABLE users ADD COLUMN avg_distance_m DECIMAL(6,1) NULL;
+## Tech stack
+- Node.js + Express
+- MariaDB (mysql2/promise)
+- JWT + bcrypt
+- dotenv + CORS
+
+---
+
+## Demarrage rapide
+```bash
+npm install
+npm start
 ```
 
-## Schema update (bot cards + challenges)
+Par defaut l'API ecoute sur `PORT=3001`.
+
+---
+
+## Configuration (.env)
+Variables attendues :
+- `PORT=3001`
+- `JWT_SECRET=...`
+- `CORS_ORIGIN=https://natrack.prjski.com,http://localhost:3000`
+- `DB_HOST=localhost`
+- `DB_PORT=3306`
+- `DB_USER=...`
+- `DB_PASSWORD=...`
+- `DB_NAME=...`
+- `BOT_LIST_PATH=./bots.json` (optionnel, pour `bot-daily.js`)
+
+Notes :
+- Si `JWT_SECRET` est vide, le login renvoie `missing_jwt_secret`.
+- CORS est en whitelist : si `CORS_ORIGIN` est vide, tout est autorise.
+- Les routes sont montees sur `/` **et** `/api` (ex: `/health` et `/api/health`).
+
+---
+
+## Endpoints (overview)
+
+### Public
+- `GET /health` : healthcheck app + DB
+- `GET /news?limit=&offset=` : news / evenements
+- `GET /sessions?type=swim|run`
+- `GET /dashboard/global`
+- `GET /season/active`
+- `GET /seasons`
+- `GET /users/public`
+
+### Auth
+- `POST /auth/login` : `{ email, password }`
+- `GET /auth/me`
+- `GET /auth/check`
+
+### User (JWT)
+- `GET /me/sessions?type=swim|run`
+- `POST /me/sessions` : `{ date, distance, type, id? }`
+- `PUT /me/sessions/:id` : `{ date?, distance?, type? }`
+- `DELETE /me/sessions/:id`
+- `GET /me/challenge`
+- `GET /me/notifications?limit=`
+- `GET /me/card-results?bot_id=`
+
+### Admin (JWT + role=admin)
+- `GET /users`
+- `GET /users/:userId/sessions?type=swim|run`
+- `POST /users/:userId/sessions`
+- `PUT /users/:userId/sessions/:id`
+- `DELETE /users/:userId/sessions/:id`
+- `GET /users/:id/card-results-counts`
+
+---
+
+## Formats et regles
+- `type` accepte `swim` ou `run`.
+- `distance` est en **metres** (nombre > 0).
+- Les dates sont en `YYYY-MM-DD`.
+- Certaines routes utilisent `limit` et `offset`.
+
+L'API renvoie des erreurs JSON simples: `{ error: "..." }`.
+
+---
+
+## Bots quotidiens
+
+### 1) Sessions bots (bot-daily.js)
+Cree une session par bot, chaque jour, avec un jitter de +/- 10%.
+
+Format `bots.json` :
+```json
+[
+  { "id": "uuid-bot", "name": "NicoBot", "distance_m": 5200, "type": "run" },
+  { "name": "SwimBot", "distance_m": 1500, "type": "swim" }
+]
+```
+
+Lancer :
+```bash
+node bot-daily.js
+```
+
+### 2) Defis & evenements (bot-challenges-daily.js)
+- 1 defi ou evenement par user et par jour.
+- Gestion des dates limites + notifications.
+- Si evenement du jour, il ecrase le defi actif.
+
+Lancer :
+```bash
+node bot-challenges-daily.js
+```
+
+---
+
+## Schema DB (resume)
+
+### Tables de base (utilisees par l'API)
+- `users` (id, email, name, role, password_hash, is_bot, avg_distance_m, description, shoe_name, shoe_start_date, shoe_target_km, card_image, etc.)
+- `sessions` (id, user_id, date, distance, type)
+
+### Cartes, defis, saisons, notifications
+Voir `schema-bot-cards.sql` :
+- `seasons`
+- `user_challenges`
+- `user_card_results`
+- `notifications`
+
+### News
+Voir `schema-news.sql` :
+- `news_items`
+
+### Extensions users (bots)
+Ajouts utiles :
 ```sql
 ALTER TABLE users
+  ADD COLUMN description TEXT NULL,
+  ADD COLUMN avg_distance_m DECIMAL(6,1) NULL,
   ADD COLUMN bot_card_type ENUM('defi','objet','evenement','rare') NULL,
   ADD COLUMN bot_event_date DATE NULL,
   ADD COLUMN bot_drop_rate DECIMAL(6,3) NULL,
   ADD COLUMN bot_target_distance_m DECIMAL(8,1) NULL,
   ADD COLUMN bot_season_int INT NULL;
-
-CREATE TABLE IF NOT EXISTS seasons (
-  season_number INT PRIMARY KEY,
-  start_date DATE NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uniq_season_start (start_date)
-);
-
-CREATE TABLE IF NOT EXISTS user_challenges (
-  id VARCHAR(36) PRIMARY KEY,
-  user_id VARCHAR(36) NOT NULL,
-  bot_id VARCHAR(36) NOT NULL,
-  type ENUM('defi','objet','evenement','rare') NOT NULL,
-  status ENUM('active','completed','expired') NOT NULL DEFAULT 'active',
-  target_distance_m DECIMAL(8,1) NOT NULL,
-  start_date DATE NOT NULL,
-  due_date DATE NOT NULL,
-  due_at DATETIME NULL,
-  completed_at DATETIME NULL,
-  completed_session_id VARCHAR(36) NULL,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_user_status (user_id, status),
-  INDEX idx_user_due (user_id, due_date),
-  INDEX idx_bot (bot_id)
-);
-
-CREATE TABLE IF NOT EXISTS user_card_results (
-  id VARCHAR(36) PRIMARY KEY,
-  user_id VARCHAR(36) NOT NULL,
-  bot_id VARCHAR(36) NOT NULL,
-  type ENUM('defi','objet','evenement','rare') NOT NULL,
-  distance_m DECIMAL(8,1) NOT NULL,
-  target_distance_m DECIMAL(8,1) NULL,
-  session_id VARCHAR(36) NULL,
-  achieved_at DATE NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_user_bot (user_id, bot_id),
-  INDEX idx_user_date (user_id, achieved_at)
-);
-
-CREATE TABLE IF NOT EXISTS notifications (
-  id VARCHAR(36) PRIMARY KEY,
-  user_id VARCHAR(36) NOT NULL,
-  type VARCHAR(64) NOT NULL,
-  title VARCHAR(255) NULL,
-  body TEXT NULL,
-  meta_json JSON NULL,
-  read_at DATETIME NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  INDEX idx_user_created (user_id, created_at)
-);
 ```
 
-## Config
-Variables d environnement attendues (exemple):
-- PORT=3001
-- JWT_SECRET=...
-- CORS_ORIGIN=https://natrack.prjski.com,http://localhost:3000
-- DB_HOST=...
-- DB_PORT=3306
-- DB_USER=...
-- DB_PASSWORD=...
-- DB_NAME=...
+---
 
-## Lancer en local
-```bash
-npm install
-node app.js
-```
+## Notes utiles
+- `GET /` renvoie `API up` (ping simple).
+- La navigation directe en navigateur (mode document) renvoie `204` pour eviter les hits accidentels.
+- JWT expire en 14 jours.
+
+---
+
+## Roadmap (idee)
+- Seeds + migrations
+- Swagger / OpenAPI
+- Tests e2e
+
+---
+
+## License
+ISC
