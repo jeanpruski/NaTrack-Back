@@ -124,7 +124,7 @@ async function main() {
     const activeSeason = seasonRows?.[0]?.season_number ?? null;
 
     let botsSql =
-      "SELECT id, name, avg_distance_m, bot_card_type, " +
+      "SELECT id, name, avg_distance_m, bot_card_type, bot_season_int, " +
       "DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, " +
       "bot_drop_rate, bot_target_distance_m " +
       "FROM users WHERE is_bot = 1";
@@ -184,7 +184,12 @@ async function main() {
       } else if (availableChallengeBots.length) {
         bot = pickWeighted(availableChallengeBots, (b) => {
           const base = Number(b.bot_drop_rate) || 1;
-          return b.bot_card_type === "rare" ? base * 0.5 : base;
+          const seasonBoost =
+            activeSeason !== null && activeSeason !== undefined && String(b.bot_season_int) === String(activeSeason)
+              ? 1.5
+              : 1;
+          const rarePenalty = b.bot_card_type === "rare" ? 0.5 : 1;
+          return base * seasonBoost * rarePenalty;
         });
         if (!bot) continue;
         const baseDistance = normalizeMeters(bot.bot_target_distance_m ?? bot.avg_distance_m);
