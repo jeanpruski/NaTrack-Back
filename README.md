@@ -73,6 +73,7 @@ Notes :
 - `PUT /me/sessions/:id` : `{ date?, distance?, type? }`
 - `DELETE /me/sessions/:id`
 - `GET /me/challenge`
+- `POST /me/challenge/cancel`
 - `GET /me/notifications?limit=`
 - `GET /me/card-results?bot_id=`
 
@@ -138,6 +139,8 @@ Voir `schema-bot-cards.sql` :
 - `user_challenges`
 - `user_card_results`
 - `notifications`
+
+Statuts `user_challenges` : `active`, `completed`, `expired`, `cancelled`.
 
 ### News
 Voir `schema-news.sql` :

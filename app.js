@@ -570,6 +570,28 @@ api.get("/me/challenge", requireAuth, async (req, res) => {
   }
 });
 
+
+// Annuler le defi actif du user courant
+api.post("/me/challenge/cancel", requireAuth, async (req, res) => {
+  try {
+    const active = await getActiveChallenge(req.user.id);
+    if (!active) return res.json({ cancelled: false });
+    const [result] = await pool.query(
+      "UPDATE user_challenges SET status = 'cancelled' WHERE id = ? AND status = 'active'",
+      [active.id]
+    );
+    if (result.affectedRows === 0) return res.json({ cancelled: false });
+    await pool.query(
+      "UPDATE notifications SET read_at = NOW() WHERE user_id = ? AND read_at IS NULL AND type = 'challenge_start'",
+      [req.user.id]
+    );
+    res.json({ cancelled: true, challenge_id: active.id });
+  } catch (e) {
+    console.error("POST /me/challenge/cancel error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Notifications du user courant
 api.get("/me/notifications", requireAuth, async (req, res) => {
   try {

@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS user_challenges (
   user_id VARCHAR(36) NOT NULL,
   bot_id VARCHAR(36) NOT NULL,
   type ENUM('defi','objet','evenement','rare') NOT NULL,
-  status ENUM('active','completed','expired') NOT NULL DEFAULT 'active',
+  status ENUM('active','completed','expired','cancelled') NOT NULL DEFAULT 'active',
   target_distance_m DECIMAL(8,1) NOT NULL,
   start_date DATE NOT NULL,
   due_date DATE NOT NULL,
