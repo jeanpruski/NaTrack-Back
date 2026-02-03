@@ -50,6 +50,17 @@ CREATE TABLE IF NOT EXISTS user_card_results (
   INDEX idx_user_date (user_id, achieved_at)
 );
 
+-- Likes sur les sessions
+CREATE TABLE IF NOT EXISTS session_likes (
+  id VARCHAR(36) PRIMARY KEY,
+  session_id VARCHAR(36) NOT NULL,
+  user_id VARCHAR(36) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_session_user (session_id, user_id),
+  INDEX idx_session (session_id),
+  INDEX idx_user (user_id)
+);
+
 -- Notifications
 CREATE TABLE IF NOT EXISTS notifications (
   id VARCHAR(36) PRIMARY KEY,

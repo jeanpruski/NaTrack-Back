@@ -255,6 +255,7 @@ async function handleObjectCards({ userId, sessionId, sessionDate, distance }) {
 }
 
 function mapSessionRow(row) {
+  const hasChallenge = !!row.challenge_id;
   return {
     id: row.id,
     date: row.date,
@@ -262,6 +263,20 @@ function mapSessionRow(row) {
     type: row.type,
     user_id: row.user_id,
     user_name: row.user_name || null,
+    is_bot: !!row.is_bot,
+    likes_count: Number(row.likes_count) || 0,
+    challenge_completed: hasChallenge,
+    challenge: hasChallenge
+      ? {
+        id: row.challenge_id,
+        bot_id: row.challenge_bot_id || null,
+        bot_name: row.challenge_bot_name || null,
+        type: row.challenge_type || null,
+        distance_m: row.challenge_distance_m ?? null,
+        target_distance_m: row.challenge_target_distance_m ?? null,
+        achieved_at: row.challenge_achieved_at || null,
+      }
+      : null,
   };
 }
 
@@ -415,8 +430,26 @@ api.get("/sessions", async (req, res) => {
 
     const activeSeason = await getActiveSeasonInfo();
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, u.name AS user_name " +
-      "FROM sessions s LEFT JOIN users u ON u.id = s.user_id";
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, " +
+      "u.name AS user_name, u.is_bot AS is_bot, " +
+      "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
+      "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
+      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, " +
+      "l.likes_count AS likes_count " +
+      "FROM sessions s " +
+      "LEFT JOIN users u ON u.id = s.user_id " +
+      "LEFT JOIN (" +
+      "  SELECT r1.* FROM user_card_results r1 " +
+      "  INNER JOIN (" +
+      "    SELECT session_id, MIN(created_at) AS created_at " +
+      "    FROM user_card_results WHERE session_id IS NOT NULL " +
+      "    GROUP BY session_id" +
+      "  ) r2 ON r1.session_id = r2.session_id AND r1.created_at = r2.created_at" +
+      ") r ON r.session_id = s.id AND r.user_id = s.user_id " +
+      "LEFT JOIN users b ON b.id = r.bot_id " +
+      "LEFT JOIN (" +
+      "  SELECT session_id, COUNT(*) AS likes_count FROM session_likes GROUP BY session_id" +
+      ") l ON l.session_id = s.id";
     const params = [];
     const conds = [];
 
@@ -440,6 +473,61 @@ api.get("/sessions", async (req, res) => {
     res.json(rows.map(mapSessionRow));
   } catch (e) {
     console.error("GET /sessions error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Likes des sessions du user courant
+api.get("/me/session-likes", requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT session_id FROM session_likes WHERE user_id = ?",
+      [req.user.id]
+    );
+    res.json(rows.map((r) => r.session_id));
+  } catch (e) {
+    console.error("GET /me/session-likes error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Like / unlike d'une session
+api.post("/sessions/:id/like", requireAuth, async (req, res) => {
+  try {
+    const sessionId = req.params?.id;
+    if (!sessionId) return res.status(400).json({ error: "session_id requis" });
+
+    const [sessionRows] = await pool.query("SELECT user_id FROM sessions WHERE id = ? LIMIT 1", [sessionId]);
+    if (!sessionRows?.length) return res.status(404).json({ error: "session introuvable" });
+
+    if (String(sessionRows[0].user_id) === String(req.user.id)) {
+      return res.status(403).json({ error: "auto-like interdit" });
+    }
+
+    const [likeRows] = await pool.query(
+      "SELECT id FROM session_likes WHERE session_id = ? AND user_id = ? LIMIT 1",
+      [sessionId, req.user.id]
+    );
+
+    let liked = false;
+    if (likeRows?.length) {
+      await pool.query("DELETE FROM session_likes WHERE id = ?", [likeRows[0].id]);
+      liked = false;
+    } else {
+      await pool.query(
+        "INSERT INTO session_likes (id, session_id, user_id) VALUES (?, ?, ?)",
+        [uuidv4(), sessionId, req.user.id]
+      );
+      liked = true;
+    }
+
+    const [countRows] = await pool.query(
+      "SELECT COUNT(*) AS total FROM session_likes WHERE session_id = ?",
+      [sessionId]
+    );
+    res.json({ liked, likes_count: countRows?.[0]?.total || 0 });
+  } catch (e) {
+    console.error("POST /sessions/:id/like error:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -539,8 +627,27 @@ api.get("/me/sessions", requireAuth, async (req, res) => {
     }
 
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, u.name AS user_name " +
-      "FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.user_id = ?";
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, " +
+      "u.name AS user_name, u.is_bot AS is_bot, " +
+      "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
+      "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
+      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, " +
+      "l.likes_count AS likes_count " +
+      "FROM sessions s " +
+      "LEFT JOIN users u ON u.id = s.user_id " +
+      "LEFT JOIN (" +
+      "  SELECT r1.* FROM user_card_results r1 " +
+      "  INNER JOIN (" +
+      "    SELECT session_id, MIN(created_at) AS created_at " +
+      "    FROM user_card_results WHERE session_id IS NOT NULL " +
+      "    GROUP BY session_id" +
+      "  ) r2 ON r1.session_id = r2.session_id AND r1.created_at = r2.created_at" +
+      ") r ON r.session_id = s.id AND r.user_id = s.user_id " +
+      "LEFT JOIN users b ON b.id = r.bot_id " +
+      "LEFT JOIN (" +
+      "  SELECT session_id, COUNT(*) AS likes_count FROM session_likes GROUP BY session_id" +
+      ") l ON l.session_id = s.id " +
+      "WHERE s.user_id = ?";
     const params = [req.user.id];
 
     if (type) {
@@ -834,8 +941,27 @@ api.get("/users/:userId/sessions", requireAuth, requireAdmin, async (req, res) =
     }
 
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, u.name AS user_name " +
-      "FROM sessions s LEFT JOIN users u ON u.id = s.user_id WHERE s.user_id = ?";
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, " +
+      "u.name AS user_name, u.is_bot AS is_bot, " +
+      "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
+      "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
+      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, " +
+      "l.likes_count AS likes_count " +
+      "FROM sessions s " +
+      "LEFT JOIN users u ON u.id = s.user_id " +
+      "LEFT JOIN (" +
+      "  SELECT r1.* FROM user_card_results r1 " +
+      "  INNER JOIN (" +
+      "    SELECT session_id, MIN(created_at) AS created_at " +
+      "    FROM user_card_results WHERE session_id IS NOT NULL " +
+      "    GROUP BY session_id" +
+      "  ) r2 ON r1.session_id = r2.session_id AND r1.created_at = r2.created_at" +
+      ") r ON r.session_id = s.id AND r.user_id = s.user_id " +
+      "LEFT JOIN users b ON b.id = r.bot_id " +
+      "LEFT JOIN (" +
+      "  SELECT session_id, COUNT(*) AS likes_count FROM session_likes GROUP BY session_id" +
+      ") l ON l.session_id = s.id " +
+      "WHERE s.user_id = ?";
     const params = [userId];
 
     if (type) {
