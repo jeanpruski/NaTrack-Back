@@ -12,6 +12,14 @@ const bcrypt = require("bcryptjs");
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "";
+const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID || "";
+const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET || "";
+const STRAVA_REDIRECT_URI = process.env.STRAVA_REDIRECT_URI || "";
+const STRAVA_WEBHOOK_VERIFY_TOKEN = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN || "";
+const STRAVA_POST_AUTH_REDIRECT =
+  process.env.STRAVA_POST_AUTH_REDIRECT ||
+  (process.env.CORS_ORIGIN || "").split(",").map((s) => s.trim()).filter(Boolean)[0] ||
+  "";
 
 /* =========================
    CORS (prod + dev)
@@ -86,6 +94,153 @@ function requireAdmin(req, res, next) {
   return res.status(403).json({ error: "forbidden" });
 }
 
+function toMysqlDateTime(value) {
+  if (!value) return null;
+  const str = String(value);
+  if (str.includes("T")) {
+    return str.replace("T", " ").replace("Z", "").slice(0, 19);
+  }
+  return str.slice(0, 19);
+}
+
+function createStravaState(userId) {
+  if (!JWT_SECRET) return null;
+  return jwt.sign({ strava_user_id: userId }, JWT_SECRET, { expiresIn: "10m" });
+}
+
+function parseStravaState(state) {
+  if (!JWT_SECRET) return null;
+  try {
+    const payload = jwt.verify(state, JWT_SECRET);
+    return payload?.strava_user_id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function stravaTokenRequest(params) {
+  const res = await fetch("https://www.strava.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const msg = data?.message || "strava_token_error";
+    throw new Error(msg);
+  }
+  return data;
+}
+
+async function exchangeStravaCode({ code, state }) {
+  if (!code || !state) throw new Error("missing_code_or_state");
+  if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) throw new Error("missing_strava_config");
+  const userId = parseStravaState(state);
+  if (!userId) throw new Error("invalid_state");
+  const tokenData = await stravaTokenRequest({
+    client_id: STRAVA_CLIENT_ID,
+    client_secret: STRAVA_CLIENT_SECRET,
+    code,
+    grant_type: "authorization_code",
+  });
+  const athleteId = tokenData?.athlete?.id;
+  if (!athleteId) throw new Error("missing_athlete");
+  await upsertStravaAccount({
+    userId,
+    athleteId,
+    accessToken: tokenData.access_token,
+    refreshToken: tokenData.refresh_token,
+    expiresAt: tokenData.expires_at,
+  });
+  return { userId, athleteId };
+}
+
+async function upsertStravaAccount({ userId, athleteId, accessToken, refreshToken, expiresAt }) {
+  await pool.query(
+    "INSERT INTO strava_accounts (user_id, athlete_id, access_token, refresh_token, expires_at, created_at, updated_at) " +
+      "VALUES (?, ?, ?, ?, ?, NOW(), NOW()) " +
+      "ON DUPLICATE KEY UPDATE athlete_id = VALUES(athlete_id), access_token = VALUES(access_token), " +
+      "refresh_token = VALUES(refresh_token), expires_at = VALUES(expires_at), updated_at = NOW()",
+    [userId, athleteId, accessToken, refreshToken, expiresAt]
+  );
+}
+
+async function getStravaAccountByAthlete(athleteId) {
+  const [rows] = await pool.query(
+    "SELECT user_id, athlete_id, access_token, refresh_token, expires_at " +
+      "FROM strava_accounts WHERE athlete_id = ? LIMIT 1",
+    [athleteId]
+  );
+  return rows?.[0] || null;
+}
+
+async function getStravaAccountByUser(userId) {
+  const [rows] = await pool.query(
+    "SELECT user_id, athlete_id, access_token, refresh_token, expires_at " +
+      "FROM strava_accounts WHERE user_id = ? LIMIT 1",
+    [userId]
+  );
+  return rows?.[0] || null;
+}
+
+async function ensureStravaAccessByAthlete(athleteId) {
+  const account = await getStravaAccountByAthlete(athleteId);
+  if (!account) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (account.expires_at && Number(account.expires_at) > now + 60) return account;
+  if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET || !account.refresh_token) return account;
+  const refreshed = await stravaTokenRequest({
+    client_id: STRAVA_CLIENT_ID,
+    client_secret: STRAVA_CLIENT_SECRET,
+    grant_type: "refresh_token",
+    refresh_token: account.refresh_token,
+  });
+  const athleteIdNext = refreshed?.athlete?.id || account.athlete_id;
+  await upsertStravaAccount({
+    userId: account.user_id,
+    athleteId: athleteIdNext,
+    accessToken: refreshed.access_token,
+    refreshToken: refreshed.refresh_token,
+    expiresAt: refreshed.expires_at,
+  });
+  return {
+    user_id: account.user_id,
+    athlete_id: athleteIdNext,
+    access_token: refreshed.access_token,
+    refresh_token: refreshed.refresh_token,
+    expires_at: refreshed.expires_at,
+  };
+}
+
+async function ensureStravaAccessByUser(userId) {
+  const account = await getStravaAccountByUser(userId);
+  if (!account) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (account.expires_at && Number(account.expires_at) > now + 60) return account;
+  if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET || !account.refresh_token) return account;
+  const refreshed = await stravaTokenRequest({
+    client_id: STRAVA_CLIENT_ID,
+    client_secret: STRAVA_CLIENT_SECRET,
+    grant_type: "refresh_token",
+    refresh_token: account.refresh_token,
+  });
+  const athleteIdNext = refreshed?.athlete?.id || account.athlete_id;
+  await upsertStravaAccount({
+    userId: account.user_id,
+    athleteId: athleteIdNext,
+    accessToken: refreshed.access_token,
+    refreshToken: refreshed.refresh_token,
+    expiresAt: refreshed.expires_at,
+  });
+  return {
+    user_id: account.user_id,
+    athlete_id: athleteIdNext,
+    access_token: refreshed.access_token,
+    refresh_token: refreshed.refresh_token,
+    expires_at: refreshed.expires_at,
+  };
+}
+
 async function getActiveSeasonInfo() {
   const [rows] = await pool.query(
     "SELECT season_number, DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date " +
@@ -113,6 +268,9 @@ async function getActiveSeasonInfo() {
 function blockBrowserNav(req, res, next) {
   try {
     if (req.method === "GET" && req.path !== "/health") {
+      if (req.path === "/strava/callback" || req.path === "/strava/webhook") {
+        return next();
+      }
       const dest = (req.get("sec-fetch-dest") || "").toLowerCase();
       const mode = (req.get("sec-fetch-mode") || "").toLowerCase();
       const accept = (req.get("accept") || "").toLowerCase();
@@ -376,13 +534,186 @@ api.post("/auth/login", async (req, res) => {
   }
 });
 
+// Strava OAuth connect
+api.get("/strava/connect", requireAuth, (req, res) => {
+  if (!STRAVA_CLIENT_ID || !STRAVA_REDIRECT_URI) {
+    return res.status(500).json({ error: "missing_strava_config" });
+  }
+  const state = createStravaState(req.user.id);
+  if (!state) return res.status(500).json({ error: "missing_jwt_secret" });
+  const params = new URLSearchParams({
+    client_id: STRAVA_CLIENT_ID,
+    redirect_uri: STRAVA_REDIRECT_URI,
+    response_type: "code",
+    approval_prompt: "auto",
+    scope: "activity:read_all",
+    state,
+  });
+  const url = `https://www.strava.com/oauth/authorize?${params.toString()}`;
+  if (String(req.query?.redirect) === "1") return res.redirect(url);
+  return res.json({ url });
+});
+
+// Strava status (user)
+api.get("/strava/status", requireAuth, async (req, res) => {
+  try {
+    const account = await getStravaAccountByUser(req.user.id);
+    if (!account) return res.json({ connected: false });
+    res.json({
+      connected: true,
+      athlete_id: account.athlete_id,
+      expires_at: account.expires_at,
+    });
+  } catch (e) {
+    console.error("GET /strava/status error:", e);
+    res.status(500).json({ error: "strava_status_error" });
+  }
+});
+
+// Strava disconnect (user)
+api.post("/strava/disconnect", requireAuth, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM strava_accounts WHERE user_id = ?", [req.user.id]);
+    res.json({ disconnected: true });
+  } catch (e) {
+    console.error("POST /strava/disconnect error:", e);
+    res.status(500).json({ error: "strava_disconnect_error" });
+  }
+});
+
+// Strava import logs (user)
+api.get("/strava/logs", requireAuth, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query?.limit) || 10, 50);
+    const [rows] = await pool.query(
+      "SELECT id, DATE_FORMAT(date, '%Y-%m-%d') AS date, distance, type, strava_activity_id, " +
+        "DATE_FORMAT(start_datetime, '%Y-%m-%d %H:%i:%s') AS start_datetime, " +
+        "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at " +
+        "FROM sessions WHERE user_id = ? AND strava_activity_id IS NOT NULL " +
+        "ORDER BY COALESCE(start_datetime, created_at, date) DESC LIMIT ?",
+      [req.user.id, limit]
+    );
+    res.json(rows || []);
+  } catch (e) {
+    console.error("GET /strava/logs error:", e);
+    res.status(500).json({ error: "strava_logs_error" });
+  }
+});
+
+// Strava OAuth callback
+api.get("/strava/callback", async (req, res) => {
+  try {
+    const code = req.query?.code;
+    const state = req.query?.state;
+    await exchangeStravaCode({ code, state });
+    if (STRAVA_POST_AUTH_REDIRECT) {
+      const sep = STRAVA_POST_AUTH_REDIRECT.includes("?") ? "&" : "?";
+      return res.redirect(`${STRAVA_POST_AUTH_REDIRECT}${sep}strava=connected`);
+    }
+    return res.json({ connected: true });
+  } catch (e) {
+    console.error("GET /strava/callback error:", e);
+    if (STRAVA_POST_AUTH_REDIRECT) {
+      const sep = STRAVA_POST_AUTH_REDIRECT.includes("?") ? "&" : "?";
+      return res.redirect(`${STRAVA_POST_AUTH_REDIRECT}${sep}strava=error`);
+    }
+    return res.status(500).json({ error: "strava_callback_error" });
+  }
+});
+
+// Strava exchange (manual finalize)
+api.post("/strava/exchange", requireAuth, async (req, res) => {
+  try {
+    const code = req.body?.code;
+    const state = req.body?.state;
+    const userId = parseStravaState(state);
+    if (!userId) return res.status(401).json({ error: "invalid_state" });
+    if (String(userId) !== String(req.user.id)) return res.status(403).json({ error: "forbidden" });
+    const result = await exchangeStravaCode({ code, state });
+    res.json({ connected: true, athlete_id: result.athleteId });
+  } catch (e) {
+    console.error("POST /strava/exchange error:", e);
+    res.status(500).json({ error: e.message || "strava_exchange_error" });
+  }
+});
+
+// Strava Webhook verification
+api.get("/strava/webhook", (req, res) => {
+  const mode = req.query?.["hub.mode"];
+  const token = req.query?.["hub.verify_token"];
+  const challenge = req.query?.["hub.challenge"];
+  if (mode === "subscribe" && token && token === STRAVA_WEBHOOK_VERIFY_TOKEN) {
+    return res.json({ "hub.challenge": challenge });
+  }
+  return res.status(403).json({ error: "forbidden" });
+});
+
+// Strava Webhook receiver
+api.post("/strava/webhook", async (req, res) => {
+  const body = req.body || {};
+  res.json({ received: true });
+  try {
+    if (body.object_type !== "activity" || body.aspect_type !== "create") return;
+    const activityId = body.object_id;
+    const athleteId = body.owner_id;
+    if (!activityId || !athleteId) return;
+    const account = await ensureStravaAccessByAthlete(athleteId);
+    if (!account?.access_token) return;
+
+    const activityRes = await fetch(`https://www.strava.com/api/v3/activities/${activityId}`, {
+      headers: { Authorization: `Bearer ${account.access_token}` },
+    });
+    const activity = await activityRes.json();
+    if (!activityRes.ok) return;
+    if (String(activity?.type) !== "Run") return;
+
+    const distance = Math.round(Number(activity.distance) || 0);
+    if (!Number.isFinite(distance) || distance <= 0) return;
+
+    const dateValue = activity.start_date_local || activity.start_date;
+    const date = String(dateValue || "").split("T")[0];
+    if (!date) return;
+    const startDateTime = toMysqlDateTime(dateValue);
+
+    const [dupRows] = await pool.query(
+      "SELECT id FROM sessions WHERE user_id = ? AND (strava_activity_id = ? OR (date = ? AND distance = ? AND type = 'run')) LIMIT 1",
+      [account.user_id, String(activityId), date, distance]
+    );
+    if (dupRows?.length) return;
+
+    const newId = uuidv4();
+    await pool.query(
+      "INSERT INTO sessions (id, user_id, date, distance, type, strava_activity_id, start_datetime) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [newId, account.user_id, date, distance, "run", String(activityId), startDateTime]
+    );
+
+    const challengeCompleted = await handleChallengeCompletion({
+      userId: account.user_id,
+      sessionId: newId,
+      sessionDate: date,
+      distance,
+    });
+    await handleObjectCards({
+      userId: account.user_id,
+      sessionId: newId,
+      sessionDate: date,
+      distance,
+    });
+
+    void challengeCompleted;
+  } catch (e) {
+    console.error("POST /strava/webhook error:", e);
+  }
+});
+
 // Infos user courant
 api.get("/auth/me", requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
       "SELECT id, email, name, description, avg_distance_m, role, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
         "bot_card_type, DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, bot_drop_rate, bot_target_distance_m, " +
-        "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
+        "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, last_victory_seen_id, " +
         "shoe_target_km FROM users WHERE id = ? LIMIT 1",
       [req.user.id]
     );
@@ -408,10 +739,27 @@ api.get("/auth/me", requireAuth, async (req, res) => {
         card_image: user.card_image || null,
         shoe_start_date: user.shoe_start_date || null,
         shoe_target_km: user.shoe_target_km ?? null,
+        last_victory_seen_id: user.last_victory_seen_id || null,
       },
     });
   } catch (e) {
     console.error("GET /auth/me error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Marquer la derniere victoire comme vue
+api.post("/me/victory/seen", requireAuth, async (req, res) => {
+  try {
+    const victoryId = req.body?.victory_id;
+    if (!victoryId) return res.status(400).json({ error: "victory_id requis" });
+    await pool.query(
+      "UPDATE users SET last_victory_seen_id = ? WHERE id = ?",
+      [String(victoryId), req.user.id]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("POST /me/victory/seen error:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -731,6 +1079,12 @@ api.get("/me/notifications", requireAuth, async (req, res) => {
         "AND DATE(created_at) < DATE_SUB(CURDATE(), INTERVAL 2 DAY)",
       [req.user.id]
     );
+    await pool.query(
+      "UPDATE notifications SET read_at = NOW() " +
+        "WHERE user_id = ? AND read_at IS NULL AND type IN ('challenge_success','event_success') " +
+        "AND DATE(created_at) < DATE_SUB(CURDATE(), INTERVAL 7 DAY)",
+      [req.user.id]
+    );
     const [rows] = await pool.query(
       "SELECT id, type, title, body, meta_json, " +
         "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, " +
@@ -750,6 +1104,24 @@ api.get("/me/notifications", requireAuth, async (req, res) => {
     res.json(mapped);
   } catch (e) {
     console.error("GET /me/notifications error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Marquer des notifications comme lues
+api.post("/me/notifications/read", requireAuth, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : (req.body?.id ? [req.body.id] : []);
+    const clean = ids.map((id) => String(id)).filter(Boolean);
+    if (!clean.length) return res.json({ updated: 0 });
+    const placeholders = clean.map(() => "?").join(",");
+    const [result] = await pool.query(
+      `UPDATE notifications SET read_at = NOW() WHERE user_id = ? AND id IN (${placeholders})`,
+      [req.user.id, ...clean]
+    );
+    res.json({ updated: result?.affectedRows || 0 });
+  } catch (e) {
+    console.error("POST /me/notifications/read error:", e);
     res.status(500).json({ error: e.message });
   }
 });

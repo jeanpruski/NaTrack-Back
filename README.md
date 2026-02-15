@@ -43,6 +43,11 @@ Variables attendues :
 - `DB_PASSWORD=...`
 - `DB_NAME=...`
 - `BOT_LIST_PATH=./bots.json` (optionnel, pour `bot-daily.js`)
+- `STRAVA_CLIENT_ID=...`
+- `STRAVA_CLIENT_SECRET=...`
+- `STRAVA_REDIRECT_URI=...` (ex: `https://api.monsite.com/strava/callback`)
+- `STRAVA_WEBHOOK_VERIFY_TOKEN=...`
+- `STRAVA_POST_AUTH_REDIRECT=...` (optionnel, ex: `https://natrack.prjski.com`)
 
 Notes :
 - Si `JWT_SECRET` est vide, le login renvoie `missing_jwt_secret`.
@@ -66,6 +71,12 @@ Notes :
 - `POST /auth/login` : `{ email, password }`
 - `GET /auth/me`
 - `GET /auth/check`
+
+### Strava
+- `GET /strava/connect` : demarre l'OAuth
+- `GET /strava/callback` : callback OAuth Strava
+- `GET /strava/webhook` : validation webhook Strava
+- `POST /strava/webhook` : reception webhook Strava
 
 ### User (JWT)
 - `GET /me/sessions?type=swim|run`
@@ -94,6 +105,36 @@ Notes :
 - Certaines routes utilisent `limit` et `offset`.
 
 L'API renvoie des erreurs JSON simples: `{ error: "..." }`.
+
+---
+
+## Schema update (Strava)
+Ajouts pour l'integration Strava :
+```sql
+CREATE TABLE IF NOT EXISTS strava_accounts (
+  user_id VARCHAR(36) PRIMARY KEY,
+  athlete_id BIGINT NOT NULL,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  expires_at BIGINT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_strava_athlete (athlete_id)
+);
+
+ALTER TABLE sessions
+  ADD COLUMN strava_activity_id BIGINT NULL,
+  ADD COLUMN start_datetime DATETIME NULL,
+  ADD UNIQUE KEY uniq_strava_activity (strava_activity_id);
+```
+
+---
+
+## Schema update (Victory one-shot)
+Ajout d'un champ pour memoriser la derniere victoire vue :
+```sql
+ALTER TABLE users ADD COLUMN last_victory_seen_id VARCHAR(36) NULL;
+```
 
 ---
 
