@@ -764,6 +764,30 @@ api.post("/me/victory/seen", requireAuth, async (req, res) => {
   }
 });
 
+// Derniere victoire non vue
+api.get("/me/victory/latest", requireAuth, async (req, res) => {
+  try {
+    const [userRows] = await pool.query("SELECT last_victory_seen_id FROM users WHERE id = ? LIMIT 1", [req.user.id]);
+    const lastSeen = userRows?.[0]?.last_victory_seen_id || null;
+    const [rows] = await pool.query(
+      "SELECT r.id, r.bot_id, u.name AS bot_name, r.type, r.distance_m, r.target_distance_m, r.session_id, " +
+        "DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS achieved_at, DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS achieved_at_time " +
+        "FROM user_card_results r LEFT JOIN users u ON u.id = r.bot_id " +
+        "WHERE r.user_id = ? AND r.type IN ('defi','rare','evenement') " +
+        "ORDER BY COALESCE(r.achieved_at, r.created_at) DESC, r.created_at DESC, r.id DESC LIMIT 1",
+      [req.user.id]
+    );
+    const latest = rows?.[0] || null;
+    if (!latest?.id) return res.json({ victory: null });
+    if (lastSeen && String(lastSeen) === String(latest.id)) return res.json({ victory: null });
+    res.json({ victory: latest });
+  } catch (e) {
+    console.error("GET /me/victory/latest error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 // Compat: check auth (ancien endpoint)
 api.get("/auth/check", requireAuth, (_req, res) => {
   res.json({ ok: true });
