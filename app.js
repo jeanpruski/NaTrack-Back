@@ -259,6 +259,7 @@ function mapSessionRow(row) {
   return {
     id: row.id,
     date: row.date,
+    created_at: row.created_at || null,
     distance: row.distance,
     type: row.type,
     user_id: row.user_id,
@@ -275,6 +276,7 @@ function mapSessionRow(row) {
         distance_m: row.challenge_distance_m ?? null,
         target_distance_m: row.challenge_target_distance_m ?? null,
         achieved_at: row.challenge_achieved_at || null,
+        achieved_at_time: row.challenge_achieved_at_time || null,
       }
       : null,
   };
@@ -430,11 +432,11 @@ api.get("/sessions", async (req, res) => {
 
     const activeSeason = await getActiveSeasonInfo();
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, " +
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
       "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
       "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
-      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, " +
+      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS challenge_achieved_at_time, " +
       "l.likes_count AS likes_count " +
       "FROM sessions s " +
       "LEFT JOIN users u ON u.id = s.user_id " +
@@ -598,15 +600,29 @@ api.get("/users/public", async (_req, res) => {
     const activeSeason = await getActiveSeasonInfo();
     const params = [];
     let sql =
-      "SELECT id, name, description, avg_distance_m, shoe_name, card_image, is_bot, bot_color, bot_border_color, " +
-      "bot_card_type, DATE_FORMAT(bot_event_date, '%Y-%m-%d') AS bot_event_date, bot_drop_rate, bot_target_distance_m, bot_season_int, created_at, " +
-      "DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
-      "shoe_target_km FROM users";
+      "SELECT u.id, u.name, u.description, u.avg_distance_m, u.shoe_name, u.card_image, u.is_bot, u.bot_color, u.bot_border_color, " +
+      "u.bot_card_type, DATE_FORMAT(u.bot_event_date, '%Y-%m-%d') AS bot_event_date, u.bot_drop_rate, u.bot_target_distance_m, u.bot_season_int, u.created_at, " +
+      "DATE_FORMAT(u.shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
+      "u.shoe_target_km, " +
+      "IFNULL(uc.cards_defi, 0) AS cards_defi, IFNULL(uc.cards_rare, 0) AS cards_rare, IFNULL(uc.cards_evenement, 0) AS cards_evenement, " +
+      "uc.cards_last_unique_at AS cards_last_unique_at " +
+      "FROM users u " +
+      "LEFT JOIN (" +
+      "  SELECT user_id, " +
+      "  COUNT(DISTINCT CASE WHEN type = 'defi' THEN bot_id END) AS cards_defi, " +
+      "  COUNT(DISTINCT CASE WHEN type = 'rare' THEN bot_id END) AS cards_rare, " +
+      "  COUNT(DISTINCT CASE WHEN type = 'evenement' THEN bot_id END) AS cards_evenement, " +
+      "  DATE_FORMAT(MAX(first_at), '%Y-%m-%d %H:%i:%s') AS cards_last_unique_at " +
+      "  FROM (" +
+      "    SELECT user_id, bot_id, type, MIN(created_at) AS first_at " +
+      "    FROM user_card_results WHERE type IN ('defi','rare','evenement') GROUP BY user_id, bot_id, type" +
+      "  ) ucr GROUP BY user_id" +
+      ") uc ON uc.user_id = u.id";
     if (activeSeason?.season_number !== null && activeSeason?.season_number !== undefined) {
-      sql += " WHERE (is_bot = 0 OR bot_season_int IS NULL OR bot_season_int <= ?)";
+      sql += " WHERE (u.is_bot = 0 OR u.bot_season_int IS NULL OR u.bot_season_int <= ?)";
       params.push(activeSeason.season_number);
     } else {
-      sql += " WHERE (is_bot = 0 OR bot_season_int IS NULL)";
+      sql += " WHERE (u.is_bot = 0 OR u.bot_season_int IS NULL)";
     }
     sql += " ORDER BY name ASC";
     const [rows] = await pool.query(sql, params);
@@ -627,11 +643,11 @@ api.get("/me/sessions", requireAuth, async (req, res) => {
     }
 
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, " +
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
       "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
       "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
-      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, " +
+      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS challenge_achieved_at_time, " +
       "l.likes_count AS likes_count " +
       "FROM sessions s " +
       "LEFT JOIN users u ON u.id = s.user_id " +
@@ -703,6 +719,18 @@ api.post("/me/challenge/cancel", requireAuth, async (req, res) => {
 api.get("/me/notifications", requireAuth, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query?.limit) || 50, 200);
+    await pool.query(
+      "UPDATE notifications SET read_at = NOW() " +
+        "WHERE user_id = ? AND read_at IS NULL AND type = 'event_start' " +
+        "AND DATE(created_at) < CURDATE()",
+      [req.user.id]
+    );
+    await pool.query(
+      "UPDATE notifications SET read_at = NOW() " +
+        "WHERE user_id = ? AND read_at IS NULL AND type = 'challenge_start' " +
+        "AND DATE(created_at) < DATE_SUB(CURDATE(), INTERVAL 2 DAY)",
+      [req.user.id]
+    );
     const [rows] = await pool.query(
       "SELECT id, type, title, body, meta_json, " +
         "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, " +
@@ -733,7 +761,7 @@ api.get("/me/card-results", requireAuth, async (req, res) => {
     const params = [req.user.id];
     let sql =
       "SELECT r.id, r.bot_id, u.name AS bot_name, r.type, r.distance_m, r.target_distance_m, r.session_id, " +
-      "DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS achieved_at " +
+      "DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS achieved_at, DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS achieved_at_time " +
       "FROM user_card_results r LEFT JOIN users u ON u.id = r.bot_id WHERE r.user_id = ?";
     if (botId) {
       sql += " AND r.bot_id = ?";
@@ -767,7 +795,7 @@ api.get("/users/:id/card-results-counts", requireAuth, async (req, res) => {
     });
 
     const [countRows] = await pool.query(
-      "SELECT LOWER(type) AS type, COUNT(*) AS total " +
+      "SELECT LOWER(type) AS type, COUNT(DISTINCT bot_id) AS total " +
         "FROM user_card_results WHERE user_id = ? AND type IN ('defi','rare','evenement') " +
         "GROUP BY LOWER(type)",
       [userId]
@@ -941,11 +969,11 @@ api.get("/users/:userId/sessions", requireAuth, requireAdmin, async (req, res) =
     }
 
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, s.distance, s.type, s.user_id, " +
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
       "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
       "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
-      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, " +
+      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS challenge_achieved_at_time, " +
       "l.likes_count AS likes_count " +
       "FROM sessions s " +
       "LEFT JOIN users u ON u.id = s.user_id " +

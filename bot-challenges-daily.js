@@ -170,8 +170,8 @@ async function main() {
       let bot = null;
       let targetDistance = null;
       let type = "defi";
-      let dueDate = addDays(today, 3);
-      let dueDateTime = addDaysDate(new Date(), 3);
+      let dueDate = addDays(today, 2);
+      let dueDateTime = addDaysDate(new Date(), 2);
 
       const availableChallengeBots = challengeBots.filter((b) => !usedBots.has(String(b.id)));
 
@@ -224,7 +224,7 @@ async function main() {
         await createNotification(pool, user.id, {
           type: "challenge_start",
           title: "Nouveau défi",
-          body: `[${bot.name}] te défie à la course, cours ${km} km avant le ${dueLabel} pour gagner sa carte !`,
+          body: `[${bot.name}] te défie à la course, cours ${km} km au plus tard le ${dueLabel} pour gagner sa carte !`,
           meta: { bot_id: bot.id, challenge_id: challengeId },
         });
         await ensureBotSession(pool, bot.id, today, targetDistance);

@@ -161,6 +161,15 @@ ALTER TABLE users
 
 ---
 
+## Schema update (timestamps)
+Ajout d'un timestamp pour l'ordre intra-jour des sessions :
+```sql
+ALTER TABLE sessions
+  ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP;
+```
+
+Note: l'heure de validation d'un challenge est deja stockee via `user_card_results.created_at` (exposee par l'API).
+
 ## Notes utiles
 - `GET /` renvoie `API up` (ping simple).
 - La navigation directe en navigateur (mode document) renvoie `204` pour eviter les hits accidentels.
