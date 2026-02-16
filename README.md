@@ -227,3 +227,8 @@ Note: l'heure de validation d'un challenge est deja stockee via `user_card_resul
 
 ## License
 ISC
+
+
+## Schema update (news show_event_date)
+Ajout d un champ show_event_date sur news_items (bool, default 1) pour afficher ou masquer la date dans le front :
+

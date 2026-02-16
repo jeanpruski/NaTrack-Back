@@ -8,5 +8,6 @@ CREATE TABLE IF NOT EXISTS news_items (
   image_focus_y TINYINT NULL,
   link_url VARCHAR(512) NULL,
   event_date DATE NOT NULL,
+  show_event_date TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

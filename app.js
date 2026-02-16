@@ -455,7 +455,7 @@ api.get("/news", async (req, res) => {
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 50) : null;
     const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
     const baseSql =
-      "SELECT id, title, subtitle, city, image_url, image_focus_y, link_url, " +
+      "SELECT id, title, subtitle, city, image_url, image_focus_y, link_url, show_event_date, " +
       "DATE_FORMAT(event_date, '%Y-%m-%d') AS event_date, " +
       "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at " +
       "FROM news_items ORDER BY created_at DESC, event_date DESC";
