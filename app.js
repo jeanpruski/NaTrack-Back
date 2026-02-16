@@ -1172,6 +1172,53 @@ api.get("/me/card-results", requireAuth, async (req, res) => {
   }
 });
 
+// Resultats des cartes pour un joueur
+api.get("/me/user-card-results", requireAuth, async (req, res) => {
+  try {
+    const targetId = req.query?.target_user_id;
+    const params = [req.user.id];
+    let sql =
+      "SELECT r.id, r.target_user_id, u.name AS target_name, r.distance_m, r.target_distance_m, " +
+      "DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS achieved_at, " +
+      "DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS created_at " +
+      "FROM user_player_card_results r LEFT JOIN users u ON u.id = r.target_user_id WHERE r.user_id = ?";
+    if (targetId) {
+      sql += " AND r.target_user_id = ?";
+      params.push(targetId);
+    }
+    sql += " ORDER BY r.achieved_at DESC, r.created_at DESC";
+    const [rows] = await pool.query(sql, params);
+    res.json(rows || []);
+  } catch (e) {
+    console.error("GET /me/user-card-results error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+api.post("/me/user-card-results", requireAuth, async (req, res) => {
+  try {
+    const raw = Array.isArray(req.body?.results) ? req.body.results : (req.body?.result ? [req.body.result] : []);
+    const clean = raw
+      .map((r) => ({
+        target_user_id: r?.target_user_id ? String(r.target_user_id) : "",
+        achieved_at: r?.achieved_at ? String(r.achieved_at) : "",
+        distance_m: Number(r?.distance_m),
+        target_distance_m: Number(r?.target_distance_m),
+      }))
+      .filter((r) => r.target_user_id && /^\d{4}-\d{2}-\d{2}$/.test(r.achieved_at) && Number.isFinite(r.distance_m) && Number.isFinite(r.target_distance_m));
+    if (!clean.length) return res.json({ inserted: 0 });
+    if (clean.length > 200) clean.length = 200;
+    const rows = clean.map((r) => [uuidv4(), req.user.id, r.target_user_id, r.distance_m, r.target_distance_m, r.achieved_at]);
+    const placeholders = rows.map(() => "(?,?,?,?,?,?)").join(",");
+    const sql = "INSERT IGNORE INTO user_player_card_results (id, user_id, target_user_id, distance_m, target_distance_m, achieved_at) VALUES " + placeholders;
+    const [result] = await pool.query(sql, rows.flat());
+    res.json({ inserted: result?.affectedRows || 0 });
+  } catch (e) {
+    console.error("POST /me/user-card-results error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Comptes de cartes d'un user (débloquées + totaux)
 api.get("/users/:id/card-results-counts", requireAuth, async (req, res) => {
   try {

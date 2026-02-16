@@ -50,6 +50,21 @@ CREATE TABLE IF NOT EXISTS user_card_results (
   INDEX idx_user_date (user_id, achieved_at)
 );
 
+
+-- Resultats des cartes joueurs (auto-debloquage)
+CREATE TABLE IF NOT EXISTS user_player_card_results (
+  id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
+  target_user_id VARCHAR(36) NOT NULL,
+  distance_m DECIMAL(8,1) NOT NULL,
+  target_distance_m DECIMAL(8,1) NOT NULL,
+  achieved_at DATE NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_user_target_date (user_id, target_user_id, achieved_at),
+  INDEX idx_user_target (user_id, target_user_id),
+  INDEX idx_user_date (user_id, achieved_at)
+);
+
 -- Likes sur les sessions
 CREATE TABLE IF NOT EXISTS session_likes (
   id VARCHAR(36) PRIMARY KEY,

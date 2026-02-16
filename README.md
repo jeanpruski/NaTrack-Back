@@ -87,6 +87,8 @@ Notes :
 - `POST /me/challenge/cancel`
 - `GET /me/notifications?limit=`
 - `GET /me/card-results?bot_id=`
+- `GET /me/user-card-results?target_user_id=`
+- `POST /me/user-card-results` : `{ results: [{ target_user_id, achieved_at, distance_m, target_distance_m }] }`
 
 ### Admin (JWT + role=admin)
 - `GET /users`
@@ -232,3 +234,21 @@ ISC
 ## Schema update (news show_event_date)
 Ajout d un champ show_event_date sur news_items (bool, default 1) pour afficher ou masquer la date dans le front :
 
+
+
+## Schema update (user card results)
+Ajout d une table pour les resultats de cartes joueurs :
+```sql
+CREATE TABLE IF NOT EXISTS user_player_card_results (
+  id VARCHAR(36) PRIMARY KEY,
+  user_id VARCHAR(36) NOT NULL,
+  target_user_id VARCHAR(36) NOT NULL,
+  distance_m DECIMAL(8,1) NOT NULL,
+  target_distance_m DECIMAL(8,1) NOT NULL,
+  achieved_at DATE NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_user_target_date (user_id, target_user_id, achieved_at),
+  INDEX idx_user_target (user_id, target_user_id),
+  INDEX idx_user_date (user_id, achieved_at)
+);
+```
