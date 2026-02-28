@@ -975,10 +975,10 @@ api.get("/users/public", async (_req, res) => {
       "SELECT u.id, u.name, u.description, u.avg_distance_m, u.shoe_name, u.card_image, u.is_bot, u.bot_color, u.bot_border_color, " +
       "u.bot_card_type, DATE_FORMAT(u.bot_event_date, '%Y-%m-%d') AS bot_event_date, u.bot_drop_rate, u.bot_target_distance_m, u.bot_season_int, u.created_at, " +
       "DATE_FORMAT(u.shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
-      "u.shoe_target_km, " +
+      "u.shoe_target_km, IF(sa.user_id IS NULL, 0, 1) AS strava_connected, " +
       "IFNULL(uc.cards_defi, 0) AS cards_defi, IFNULL(uc.cards_rare, 0) AS cards_rare, IFNULL(uc.cards_evenement, 0) AS cards_evenement, " +
       "uc.cards_last_unique_at AS cards_last_unique_at " +
-      "FROM users u " +
+      "FROM users u LEFT JOIN strava_accounts sa ON sa.user_id = u.id " +
       "LEFT JOIN (" +
       "  SELECT user_id, " +
       "  COUNT(DISTINCT CASE WHEN type = 'defi' THEN bot_id END) AS cards_defi, " +
@@ -990,11 +990,13 @@ api.get("/users/public", async (_req, res) => {
       "    FROM user_card_results WHERE type IN ('defi','rare','evenement') GROUP BY user_id, bot_id, type" +
       "  ) ucr GROUP BY user_id" +
       ") uc ON uc.user_id = u.id";
+    const upcomingEventCond =
+      "(u.is_bot = 1 AND u.bot_card_type = 'evenement' AND u.bot_event_date IS NOT NULL AND u.bot_event_date >= CURDATE())";
     if (activeSeason?.season_number !== null && activeSeason?.season_number !== undefined) {
-      sql += " WHERE (u.is_bot = 0 OR u.bot_season_int IS NULL OR u.bot_season_int <= ?)";
+      sql += " WHERE (u.is_bot = 0 OR u.bot_season_int IS NULL OR u.bot_season_int <= ? OR " + upcomingEventCond + ")";
       params.push(activeSeason.season_number);
     } else {
-      sql += " WHERE (u.is_bot = 0 OR u.bot_season_int IS NULL)";
+      sql += " WHERE (u.is_bot = 0 OR u.bot_season_int IS NULL OR " + upcomingEventCond + ")";
     }
     sql += " ORDER BY name ASC";
     const [rows] = await pool.query(sql, params);
