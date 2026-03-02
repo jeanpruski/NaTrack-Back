@@ -91,6 +91,7 @@ Notes :
 - `POST /me/user-card-results` : `{ results: [{ target_user_id, achieved_at, distance_m, target_distance_m }] }`
 
 ### Admin (JWT + role=admin)
+- `GET /admin/challenge-stats?from=YYYY-MM-DD&to=YYYY-MM-DD&rebuild=1`
 - `GET /users`
 - `GET /users/:userId/sessions?type=swim|run`
 - `POST /users/:userId/sessions`
@@ -181,6 +182,7 @@ Voir `schema-bot-cards.sql` :
 - `seasons`
 - `user_challenges`
 - `user_card_results`
+- `daily_challenge_stats`
 - `notifications`
 
 Statuts `user_challenges` : `active`, `completed`, `expired`, `cancelled`.

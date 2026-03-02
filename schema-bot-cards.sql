@@ -15,6 +15,28 @@ CREATE TABLE IF NOT EXISTS seasons (
   UNIQUE KEY uniq_season_start (start_date)
 );
 
+-- Daily challenge stats (admin)
+CREATE TABLE IF NOT EXISTS daily_challenge_stats (
+  stat_date DATE PRIMARY KEY,
+  season_number INT NULL,
+  total_count INT NOT NULL DEFAULT 0,
+  defi_count INT NOT NULL DEFAULT 0,
+  rare_count INT NOT NULL DEFAULT 0,
+  event_count INT NOT NULL DEFAULT 0,
+  season_current_count INT NOT NULL DEFAULT 0,
+  season_other_count INT NOT NULL DEFAULT 0,
+  season_none_count INT NOT NULL DEFAULT 0,
+  event_season_current_count INT NOT NULL DEFAULT 0,
+  event_season_other_count INT NOT NULL DEFAULT 0,
+  event_season_none_count INT NOT NULL DEFAULT 0,
+  rare_season_current_count INT NOT NULL DEFAULT 0,
+  rare_season_other_count INT NOT NULL DEFAULT 0,
+  rare_season_none_count INT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_season (season_number)
+);
+
 -- Active challenges (one per user max)
 CREATE TABLE IF NOT EXISTS user_challenges (
   id VARCHAR(36) PRIMARY KEY,

@@ -94,6 +94,7 @@ function requireAdmin(req, res, next) {
   return res.status(403).json({ error: "forbidden" });
 }
 
+
 function toMysqlDateTime(value) {
   if (!value) return null;
   const str = String(value);
@@ -101,6 +102,129 @@ function toMysqlDateTime(value) {
     return str.replace("T", " ").replace("Z", "").slice(0, 19);
   }
   return str.slice(0, 19);
+}
+
+
+function isValidDateString(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
+function getLocalDateString(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function listDateRange(from, to) {
+  const dates = [];
+  if (!isValidDateString(from) || !isValidDateString(to)) return dates;
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return dates;
+  const cur = new Date(start.getTime());
+  while (cur <= end) {
+    dates.push(getLocalDateString(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+function findSeasonNumberForDate(seasons, dateStr) {
+  let found = null;
+  for (const season of seasons) {
+    if (season.start_date <= dateStr) {
+      found = season.season_number;
+    } else {
+      break;
+    }
+  }
+  return found;
+}
+
+async function rebuildChallengeStats(pool, from, to) {
+  const [seasonRows] = await pool.query(
+    "SELECT season_number, DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date " +
+      "FROM seasons ORDER BY start_date ASC, season_number ASC"
+  );
+  const seasons = Array.isArray(seasonRows) ? seasonRows : [];
+  const dates = listDateRange(from, to);
+
+  for (const dateStr of dates) {
+    const seasonNumber = findSeasonNumberForDate(seasons, dateStr);
+    let row = null;
+
+    if (seasonNumber === null || seasonNumber === undefined) {
+      const [rows] = await pool.query(
+        "SELECT " +
+          "SUM(c.type IN ('defi','rare')) AS total_count, " +
+          "SUM(c.type = 'defi') AS defi_count, " +
+          "SUM(c.type = 'rare') AS rare_count, " +
+          "SUM(c.type = 'evenement') AS event_count " +
+          "FROM user_challenges c WHERE c.start_date = ?",
+        [dateStr]
+      );
+      row = rows?.[0] || {};
+      row.season_current_count = 0;
+      row.season_other_count = 0;
+      row.season_none_count = row.total_count || 0;
+      row.event_season_current_count = 0;
+      row.event_season_other_count = 0;
+      row.event_season_none_count = row.event_count || 0;
+      row.rare_season_current_count = 0;
+      row.rare_season_other_count = 0;
+      row.rare_season_none_count = row.rare_count || 0;
+    } else {
+      const [rows] = await pool.query(
+        "SELECT " +
+          "SUM(c.type IN ('defi','rare')) AS total_count, " +
+          "SUM(c.type = 'defi') AS defi_count, " +
+          "SUM(c.type = 'rare') AS rare_count, " +
+          "SUM(c.type = 'evenement') AS event_count, " +
+          "SUM(CASE WHEN c.type IN ('defi','rare') AND u.bot_season_int = ? THEN 1 ELSE 0 END) AS season_current_count, " +
+          "SUM(CASE WHEN c.type IN ('defi','rare') AND u.bot_season_int IS NULL THEN 1 ELSE 0 END) AS season_none_count, " +
+          "SUM(CASE WHEN c.type IN ('defi','rare') AND u.bot_season_int IS NOT NULL AND u.bot_season_int <> ? THEN 1 ELSE 0 END) AS season_other_count, " +
+          "SUM(CASE WHEN c.type = 'evenement' AND u.bot_season_int = ? THEN 1 ELSE 0 END) AS event_season_current_count, " +
+          "SUM(CASE WHEN c.type = 'evenement' AND u.bot_season_int IS NULL THEN 1 ELSE 0 END) AS event_season_none_count, " +
+          "SUM(CASE WHEN c.type = 'evenement' AND u.bot_season_int IS NOT NULL AND u.bot_season_int <> ? THEN 1 ELSE 0 END) AS event_season_other_count, " +
+          "SUM(CASE WHEN c.type = 'rare' AND u.bot_season_int = ? THEN 1 ELSE 0 END) AS rare_season_current_count, " +
+          "SUM(CASE WHEN c.type = 'rare' AND u.bot_season_int IS NULL THEN 1 ELSE 0 END) AS rare_season_none_count, " +
+          "SUM(CASE WHEN c.type = 'rare' AND u.bot_season_int IS NOT NULL AND u.bot_season_int <> ? THEN 1 ELSE 0 END) AS rare_season_other_count " +
+          "FROM user_challenges c JOIN users u ON u.id = c.bot_id WHERE c.start_date = ?",
+        [seasonNumber, seasonNumber, seasonNumber, seasonNumber, seasonNumber, seasonNumber, dateStr]
+      );
+      row = rows?.[0] || {};
+    }
+
+    const total = Number(row.total_count) || 0;
+    const defi = Number(row.defi_count) || 0;
+    const rare = Number(row.rare_count) || 0;
+    const event = Number(row.event_count) || 0;
+    const seasonCurrent = Number(row.season_current_count) || 0;
+    const seasonOther = Number(row.season_other_count) || 0;
+    const seasonNone = Number(row.season_none_count) || 0;
+    const eventSeasonCurrent = Number(row.event_season_current_count) || 0;
+    const eventSeasonOther = Number(row.event_season_other_count) || 0;
+    const eventSeasonNone = Number(row.event_season_none_count) || 0;
+    const rareSeasonCurrent = Number(row.rare_season_current_count) || 0;
+    const rareSeasonOther = Number(row.rare_season_other_count) || 0;
+    const rareSeasonNone = Number(row.rare_season_none_count) || 0;
+
+    await pool.query(
+      "INSERT INTO daily_challenge_stats " +
+        "(stat_date, season_number, total_count, defi_count, rare_count, event_count, season_current_count, season_other_count, season_none_count, " +
+        "event_season_current_count, event_season_other_count, event_season_none_count, rare_season_current_count, rare_season_other_count, rare_season_none_count) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+        "ON DUPLICATE KEY UPDATE " +
+        "season_number = VALUES(season_number), total_count = VALUES(total_count), defi_count = VALUES(defi_count), " +
+        "rare_count = VALUES(rare_count), event_count = VALUES(event_count), season_current_count = VALUES(season_current_count), " +
+        "season_other_count = VALUES(season_other_count), season_none_count = VALUES(season_none_count), " +
+        "event_season_current_count = VALUES(event_season_current_count), event_season_other_count = VALUES(event_season_other_count), " +
+        "event_season_none_count = VALUES(event_season_none_count), rare_season_current_count = VALUES(rare_season_current_count), " +
+        "rare_season_other_count = VALUES(rare_season_other_count), rare_season_none_count = VALUES(rare_season_none_count)",
+      [dateStr, seasonNumber ?? null, total, defi, rare, event, seasonCurrent, seasonOther, seasonNone, eventSeasonCurrent, eventSeasonOther, eventSeasonNone, rareSeasonCurrent, rareSeasonOther, rareSeasonNone]
+    );
+  }
 }
 
 function createStravaState(userId) {
@@ -1388,6 +1512,55 @@ api.delete("/me/sessions/:id", requireAuth, async (req, res) => {
 });
 
 // Admin: liste des users
+
+// Stats cartes (admin)
+api.get("/admin/challenge-stats", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const today = getLocalDateString();
+    let from = isValidDateString(req.query?.from) ? req.query.from : null;
+    let to = isValidDateString(req.query?.to) ? req.query.to : null;
+
+    if (!from) {
+      const [season0Rows] = await pool.query(
+        "SELECT DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date FROM seasons WHERE season_number = 0 LIMIT 1"
+      );
+      const [firstRows] = await pool.query(
+        "SELECT DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date FROM seasons ORDER BY start_date ASC LIMIT 1"
+      );
+      from = season0Rows?.[0]?.start_date || firstRows?.[0]?.start_date || "2026-01-31";
+    }
+    if (!to) to = today;
+    if (from > to) {
+      const tmp = from;
+      from = to;
+      to = tmp;
+    }
+
+    if (String(req.query?.rebuild || "") === "1") {
+      await rebuildChallengeStats(pool, from, to);
+    }
+
+    const [rows] = await pool.query(
+      "SELECT DATE_FORMAT(stat_date, '%Y-%m-%d') AS stat_date, season_number, total_count, defi_count, rare_count, event_count, " +
+        "season_current_count, season_other_count, season_none_count, event_season_current_count, event_season_other_count, event_season_none_count, " +
+        "rare_season_current_count, rare_season_other_count, rare_season_none_count " +
+        "FROM daily_challenge_stats WHERE stat_date BETWEEN ? AND ? ORDER BY stat_date ASC",
+      [from, to]
+    );
+
+    const [activeRows] = await pool.query(
+      "SELECT season_number FROM seasons WHERE start_date <= ? ORDER BY start_date DESC, season_number DESC LIMIT 1",
+      [today]
+    );
+    const activeSeasonNumber = activeRows?.[0]?.season_number ?? null;
+
+    res.json({ from, to, rows: rows || [], activeSeasonNumber });
+  } catch (e) {
+    console.error("GET /admin/challenge-stats error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 api.get("/users", requireAuth, requireAdmin, async (_req, res) => {
   try {
     const [rows] = await pool.query(
