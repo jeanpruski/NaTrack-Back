@@ -260,7 +260,7 @@ async function main() {
           const base = Number(b.bot_drop_rate) || 1;
           const seasonBoost =
             activeSeason !== null && activeSeason !== undefined && String(b.bot_season_int) === String(activeSeason)
-              ? 2.2
+              ? 2
               : 1;
           const rarePenalty = b.bot_card_type === "rare" ? 0.5 : 1;
           return base * seasonBoost * rarePenalty;
