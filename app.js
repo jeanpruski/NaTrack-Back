@@ -1100,7 +1100,7 @@ api.get("/users/public", async (_req, res) => {
       "u.bot_card_type, DATE_FORMAT(u.bot_event_date, '%Y-%m-%d') AS bot_event_date, u.bot_drop_rate, u.bot_target_distance_m, u.bot_season_int, u.created_at, " +
       "DATE_FORMAT(u.shoe_start_date, '%Y-%m-%d') AS shoe_start_date, " +
       "u.shoe_target_km, IF(sa.user_id IS NULL, 0, 1) AS strava_connected, " +
-      "IFNULL(uc.cards_defi, 0) AS cards_defi, IFNULL(uc.cards_rare, 0) AS cards_rare, IFNULL(uc.cards_evenement, 0) AS cards_evenement, " +
+      "IFNULL(uc.cards_defi, 0) AS cards_defi, IFNULL(uc.cards_rare, 0) AS cards_rare, IFNULL(uc.cards_evenement, 0) AS cards_evenement, IFNULL(upc.cards_user, 0) AS cards_user, " +
       "uc.cards_last_unique_at AS cards_last_unique_at " +
       "FROM users u LEFT JOIN strava_accounts sa ON sa.user_id = u.id " +
       "LEFT JOIN (" +
@@ -1113,7 +1113,11 @@ api.get("/users/public", async (_req, res) => {
       "    SELECT user_id, bot_id, type, MIN(created_at) AS first_at " +
       "    FROM user_card_results WHERE type IN ('defi','rare','evenement') GROUP BY user_id, bot_id, type" +
       "  ) ucr GROUP BY user_id" +
-      ") uc ON uc.user_id = u.id";
+      ") uc ON uc.user_id = u.id " +
+      "LEFT JOIN (" +
+      "  SELECT user_id, COUNT(DISTINCT target_user_id) AS cards_user " +
+      "  FROM user_player_card_results WHERE target_user_id <> user_id GROUP BY user_id" +
+      ") upc ON upc.user_id = u.id";
     const upcomingEventCond =
       "(u.is_bot = 1 AND u.bot_card_type = 'evenement' AND u.bot_event_date IS NOT NULL AND u.bot_event_date >= CURDATE())";
     if (activeSeason?.season_number !== null && activeSeason?.season_number !== undefined) {
@@ -1373,10 +1377,24 @@ api.get("/users/:id/card-results-counts", requireAuth, async (req, res) => {
       if (row?.type && counts[row.type] !== undefined) counts[row.type] = Number(row.total) || 0;
     });
 
+    const [userCountRows] = await pool.query(
+      "SELECT COUNT(DISTINCT target_user_id) AS total FROM user_player_card_results WHERE user_id = ? AND target_user_id <> user_id",
+      [userId]
+    );
+    const userCount = Number(userCountRows?.[0]?.total) || 0;
+
+    const [userTotalRows] = await pool.query(
+      "SELECT COUNT(*) AS total FROM users WHERE is_bot = 0 AND id <> ?",
+      [userId]
+    );
+    const userTotal = Number(userTotalRows?.[0]?.total) || 0;
+
     res.json({
       defi: counts.defi,
       rare: counts.rare,
       evenement: counts.evenement,
+      user: userCount,
+      userTotal: userTotal,
       defiTotal: totals.defi,
       rareTotal: totals.rare,
       evenementTotal: totals.evenement,
