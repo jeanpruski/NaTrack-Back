@@ -926,6 +926,9 @@ api.get("/sessions", async (req, res) => {
       return res.status(400).json({ error: "type invalide (swim|run)" });
     }
 
+    const from = isValidDateString(req.query?.from) ? req.query.from : null;
+    const to = isValidDateString(req.query?.to) ? req.query.to : null;
+
     const activeSeason = await getActiveSeasonInfo();
     let sql =
       "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
@@ -954,6 +957,16 @@ api.get("/sessions", async (req, res) => {
     if (type) {
       conds.push("s.type = ?");
       params.push(type);
+    }
+    if (from && to) {
+      conds.push("s.date BETWEEN ? AND ?");
+      params.push(from, to);
+    } else if (from) {
+      conds.push("s.date >= ?");
+      params.push(from);
+    } else if (to) {
+      conds.push("s.date <= ?");
+      params.push(to);
     }
     if (activeSeason?.season_number !== null && activeSeason?.season_number !== undefined) {
       conds.push("(u.is_bot = 0 OR u.bot_season_int IS NULL OR u.bot_season_int <= ?)");
@@ -1131,6 +1144,35 @@ api.get("/users/public", async (_req, res) => {
     res.json(rows);
   } catch (e) {
     console.error("GET /users/public error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Progression chaussures (user courant)
+api.get("/me/shoe-progress", requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT shoe_name, DATE_FORMAT(shoe_start_date, '%Y-%m-%d') AS shoe_start_date, shoe_target_km " +
+        "FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+    const user = rows?.[0] || null;
+    if (!user || !user.shoe_start_date) {
+      return res.json({ shoe_name: user?.shoe_name || null, shoe_start_date: null, shoe_target_km: user?.shoe_target_km || null, used_m: 0 });
+    }
+    const [sumRows] = await pool.query(
+      "SELECT SUM(distance) AS total_m FROM sessions WHERE user_id = ? AND type = 'run' AND date >= ?",
+      [req.user.id, user.shoe_start_date]
+    );
+    const used_m = Number(sumRows?.[0]?.total_m) || 0;
+    res.json({
+      shoe_name: user.shoe_name || null,
+      shoe_start_date: user.shoe_start_date,
+      shoe_target_km: user.shoe_target_km || null,
+      used_m
+    });
+  } catch (e) {
+    console.error("GET /me/shoe-progress error:", e);
     res.status(500).json({ error: e.message });
   }
 });
