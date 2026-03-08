@@ -1610,7 +1610,7 @@ api.get("/admin/challenge-stats/users", requireAuth, requireAdmin, async (req, r
 
     const [rows] = await pool.query(
       "SELECT DATE_FORMAT(c.start_date, '%Y-%m-%d') AS stat_date, " +
-        "c.user_id, u.name AS user_name, c.bot_id, b.name AS bot_name, LOWER(c.type) AS type, b.bot_season_int " +
+        "c.user_id, u.name AS user_name, c.bot_id, b.name AS bot_name, LOWER(c.type) AS type, b.bot_season_int, c.target_distance_m " +
         "FROM user_challenges c " +
         "LEFT JOIN users u ON u.id = c.user_id " +
         "LEFT JOIN users b ON b.id = c.bot_id " +
