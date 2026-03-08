@@ -1609,13 +1609,13 @@ api.get("/admin/challenge-stats/users", requireAuth, requireAdmin, async (req, r
     const activeSeasonNumber = activeRows?.[0]?.season_number ?? null;
 
     const [rows] = await pool.query(
-      "SELECT DATE_FORMAT(COALESCE(r.achieved_at, r.created_at), '%Y-%m-%d') AS stat_date, " +
-        "r.user_id, u.name AS user_name, r.bot_id, b.name AS bot_name, LOWER(r.type) AS type, b.bot_season_int " +
-        "FROM user_card_results r " +
-        "LEFT JOIN users u ON u.id = r.user_id " +
-        "LEFT JOIN users b ON b.id = r.bot_id " +
-        "WHERE r.type IN ('defi','rare','evenement') " +
-        "AND COALESCE(r.achieved_at, r.created_at) BETWEEN ? AND ? " +
+      "SELECT DATE_FORMAT(c.start_date, '%Y-%m-%d') AS stat_date, " +
+        "c.user_id, u.name AS user_name, c.bot_id, b.name AS bot_name, LOWER(c.type) AS type, b.bot_season_int " +
+        "FROM user_challenges c " +
+        "LEFT JOIN users u ON u.id = c.user_id " +
+        "LEFT JOIN users b ON b.id = c.bot_id " +
+        "WHERE c.type IN ('defi','rare','evenement') " +
+        "AND c.start_date BETWEEN ? AND ? " +
         "ORDER BY stat_date ASC, u.name ASC, b.name ASC",
       [from, to]
     );
