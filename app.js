@@ -1579,6 +1579,66 @@ api.get("/admin/challenge-stats", requireAuth, requireAdmin, async (req, res) =>
   }
 });
 
+// Stats cartes par joueur (admin)
+api.get("/admin/challenge-stats/users", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const today = getLocalDateString();
+    let from = isValidDateString(req.query?.from) ? req.query.from : null;
+    let to = isValidDateString(req.query?.to) ? req.query.to : null;
+
+    if (!from) {
+      const [season0Rows] = await pool.query(
+        "SELECT DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date FROM seasons WHERE season_number = 0 LIMIT 1"
+      );
+      const [firstRows] = await pool.query(
+        "SELECT DATE_FORMAT(start_date, '%Y-%m-%d') AS start_date FROM seasons ORDER BY start_date ASC LIMIT 1"
+      );
+      from = season0Rows?.[0]?.start_date || firstRows?.[0]?.start_date || "2026-01-31";
+    }
+    if (!to) to = today;
+    if (from > to) {
+      const tmp = from;
+      from = to;
+      to = tmp;
+    }
+
+    const [activeRows] = await pool.query(
+      "SELECT season_number FROM seasons WHERE start_date <= ? ORDER BY start_date DESC, season_number DESC LIMIT 1",
+      [today]
+    );
+    const activeSeasonNumber = activeRows?.[0]?.season_number ?? null;
+
+    const [rows] = await pool.query(
+      "SELECT DATE_FORMAT(COALESCE(r.achieved_at, r.created_at), '%Y-%m-%d') AS stat_date, " +
+        "r.user_id, u.name AS user_name, r.bot_id, b.name AS bot_name, LOWER(r.type) AS type, b.bot_season_int " +
+        "FROM user_card_results r " +
+        "LEFT JOIN users u ON u.id = r.user_id " +
+        "LEFT JOIN users b ON b.id = r.bot_id " +
+        "WHERE r.type IN ('defi','rare','evenement') " +
+        "AND COALESCE(r.achieved_at, r.created_at) BETWEEN ? AND ? " +
+        "ORDER BY stat_date ASC, u.name ASC, b.name ASC",
+      [from, to]
+    );
+
+    const mapped = (rows || []).map((row) => {
+      const seasonInt = row?.bot_season_int;
+      let seasonBucket = "none";
+      if (seasonInt !== null && seasonInt !== undefined) {
+        seasonBucket =
+          activeSeasonNumber !== null && activeSeasonNumber !== undefined && String(seasonInt) === String(activeSeasonNumber)
+            ? "current"
+            : "other";
+      }
+      return { ...row, season_bucket: seasonBucket };
+    });
+
+    res.json({ from, to, rows: mapped, activeSeasonNumber });
+  } catch (e) {
+    console.error("GET /admin/challenge-stats/users error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 api.get("/users", requireAuth, requireAdmin, async (_req, res) => {
   try {
     const [rows] = await pool.query(
