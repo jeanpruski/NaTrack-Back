@@ -929,6 +929,7 @@ api.get("/sessions", async (req, res) => {
     const from = isValidDateString(req.query?.from) ? req.query.from : null;
     const to = isValidDateString(req.query?.to) ? req.query.to : null;
 
+    const userId = req.query?.user_id ? String(req.query.user_id) : null;
     const activeSeason = await getActiveSeasonInfo();
     let sql =
       "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
@@ -957,6 +958,10 @@ api.get("/sessions", async (req, res) => {
     if (type) {
       conds.push("s.type = ?");
       params.push(type);
+    }
+    if (userId) {
+      conds.push("s.user_id = ?");
+      params.push(userId);
     }
     if (from && to) {
       conds.push("s.date BETWEEN ? AND ?");
@@ -1186,6 +1191,9 @@ api.get("/me/sessions", requireAuth, async (req, res) => {
       return res.status(400).json({ error: "type invalide (swim|run)" });
     }
 
+    const from = isValidDateString(req.query?.from) ? req.query.from : null;
+    const to = isValidDateString(req.query?.to) ? req.query.to : null;
+
     let sql =
       "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
@@ -1213,6 +1221,15 @@ api.get("/me/sessions", requireAuth, async (req, res) => {
     if (type) {
       sql += " AND s.type = ?";
       params.push(type);
+    }    if (from && to) {
+      sql += " AND s.date BETWEEN ? AND ?";
+      params.push(from, to);
+    } else if (from) {
+      sql += " AND s.date >= ?";
+      params.push(from);
+    } else if (to) {
+      sql += " AND s.date <= ?";
+      params.push(to);
     }
 
     sql += " ORDER BY s.date ASC";
@@ -1221,6 +1238,93 @@ api.get("/me/sessions", requireAuth, async (req, res) => {
     res.json(rows.map(mapSessionRow));
   } catch (e) {
     console.error("GET /me/sessions error:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sessions publiques d'un user (lecture seule)
+api.get("/users/:userId/sessions/public", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const type = req.query?.type ? normalizeType(req.query.type) : null;
+    const pageRaw = req.query?.page;
+    const limitRaw = req.query?.limit;
+    const limit = limitRaw ? Math.min(Math.max(parseInt(limitRaw, 10) || 0, 1), 200) : 0;
+    const page = limit ? Math.max(parseInt(pageRaw, 10) || 1, 1) : 1;
+
+    if (type && !isValidType(type)) {
+      return res.status(400).json({ error: "type invalide (swim|run)" });
+    }
+
+    const from = isValidDateString(req.query?.from) ? req.query.from : null;
+    const to = isValidDateString(req.query?.to) ? req.query.to : null;
+
+    let sqlSelect =
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
+      "u.name AS user_name, u.is_bot AS is_bot, " +
+      "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
+      "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
+      "b.name AS challenge_bot_name, DATE_FORMAT(r.achieved_at, '%Y-%m-%d') AS challenge_achieved_at, DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS challenge_achieved_at_time, " +
+      "l.likes_count AS likes_count " +
+      "FROM sessions s " +
+      "LEFT JOIN users u ON u.id = s.user_id " +
+      "LEFT JOIN (" +
+      "  SELECT r1.* FROM user_card_results r1 " +
+      "  INNER JOIN (" +
+      "    SELECT session_id, MIN(created_at) AS created_at " +
+      "    FROM user_card_results WHERE session_id IS NOT NULL " +
+      "    GROUP BY session_id" +
+      "  ) r2 ON r1.session_id = r2.session_id AND r1.created_at = r2.created_at" +
+      ") r ON r.session_id = s.id AND r.user_id = s.user_id " +
+      "LEFT JOIN users b ON b.id = r.bot_id " +
+      "LEFT JOIN (" +
+      "  SELECT session_id, COUNT(*) AS likes_count FROM session_likes GROUP BY session_id" +
+      ") l ON l.session_id = s.id";
+    let sqlCount = "SELECT COUNT(*) AS total FROM sessions s";
+    const conds = ["s.user_id = ?"];
+    const params = [userId];
+
+    if (type) {
+      conds.push("s.type = ?");
+      params.push(type);
+    }
+    if (from && to) {
+      conds.push("s.date BETWEEN ? AND ?");
+      params.push(from, to);
+    } else if (from) {
+      conds.push("s.date >= ?");
+      params.push(from);
+    } else if (to) {
+      conds.push("s.date <= ?");
+      params.push(to);
+    }
+
+    if (conds.length) {
+      const where = " WHERE " + conds.join(" AND ");
+      sqlSelect += where;
+      sqlCount += where;
+    }
+
+    sqlSelect += " ORDER BY s.date ASC";
+
+    if (limit) {
+      sqlSelect += " LIMIT ? OFFSET ?";
+      params.push(limit, (page - 1) * limit);
+      const [rows] = await pool.query(sqlSelect, params);
+      const [countRows] = await pool.query(sqlCount, params.slice(0, params.length - 2));
+      const total = countRows?.[0]?.total || 0;
+      return res.json({
+        rows: rows.map(mapSessionRow),
+        page,
+        limit,
+        total,
+      });
+    }
+
+    const [rows] = await pool.query(sqlSelect, params);
+    res.json(rows.map(mapSessionRow));
+  } catch (e) {
+    console.error("GET /users/:userId/sessions/public error:", e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -1706,6 +1810,9 @@ api.get("/users/:userId/sessions", requireAuth, requireAdmin, async (req, res) =
       return res.status(400).json({ error: "type invalide (swim|run)" });
     }
 
+    const from = isValidDateString(req.query?.from) ? req.query.from : null;
+    const to = isValidDateString(req.query?.to) ? req.query.to : null;
+
     let sql =
       "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
@@ -1733,6 +1840,15 @@ api.get("/users/:userId/sessions", requireAuth, requireAdmin, async (req, res) =
     if (type) {
       sql += " AND s.type = ?";
       params.push(type);
+    }    if (from && to) {
+      sql += " AND s.date BETWEEN ? AND ?";
+      params.push(from, to);
+    } else if (from) {
+      sql += " AND s.date >= ?";
+      params.push(from);
+    } else if (to) {
+      sql += " AND s.date <= ?";
+      params.push(to);
     }
 
     sql += " ORDER BY s.date ASC";
