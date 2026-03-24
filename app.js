@@ -547,6 +547,7 @@ function mapSessionRow(row) {
     user_id: row.user_id,
     user_name: row.user_name || null,
     is_bot: !!row.is_bot,
+    strava_activity_id: row.strava_activity_id ?? null,
     likes_count: Number(row.likes_count) || 0,
     challenge_completed: hasChallenge,
     challenge: hasChallenge
@@ -932,7 +933,7 @@ api.get("/sessions", async (req, res) => {
     const userId = req.query?.user_id ? String(req.query.user_id) : null;
     const activeSeason = await getActiveSeasonInfo();
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, s.strava_activity_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
       "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
       "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
@@ -1195,7 +1196,7 @@ api.get("/me/sessions", requireAuth, async (req, res) => {
     const to = isValidDateString(req.query?.to) ? req.query.to : null;
 
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, s.strava_activity_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
       "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
       "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
@@ -1260,7 +1261,7 @@ api.get("/users/:userId/sessions/public", async (req, res) => {
     const to = isValidDateString(req.query?.to) ? req.query.to : null;
 
     let sqlSelect =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, s.strava_activity_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
       "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
       "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
@@ -1814,7 +1815,7 @@ api.get("/users/:userId/sessions", requireAuth, requireAdmin, async (req, res) =
     const to = isValidDateString(req.query?.to) ? req.query.to : null;
 
     let sql =
-      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, " +
+      "SELECT s.id, DATE_FORMAT(s.date, '%Y-%m-%d') AS date, DATE_FORMAT(s.created_at, '%Y-%m-%d %H:%i:%s') AS created_at, s.distance, s.type, s.user_id, s.strava_activity_id, " +
       "u.name AS user_name, u.is_bot AS is_bot, " +
       "r.id AS challenge_id, r.type AS challenge_type, r.distance_m AS challenge_distance_m, " +
       "r.target_distance_m AS challenge_target_distance_m, r.bot_id AS challenge_bot_id, " +
